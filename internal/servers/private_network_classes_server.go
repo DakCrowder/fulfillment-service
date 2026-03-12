@@ -20,6 +20,8 @@ import (
 
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
@@ -118,6 +120,13 @@ func (s *PrivateNetworkClassesServer) Create(ctx context.Context,
 		return
 	}
 
+	// Set status to READY on creation since NetworkClass has no backend provisioning.
+	nc := request.GetObject()
+	if nc.Status == nil {
+		nc.Status = &privatev1.NetworkClassStatus{}
+	}
+	nc.Status.SetState(privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
 	err = s.generic.Create(ctx, request, &response)
 	return
 }
@@ -141,8 +150,13 @@ func (s *PrivateNetworkClassesServer) Update(ctx context.Context,
 
 	existingNC := getResponse.GetObject()
 
-	// Validate with existing object context:
-	err = s.validateNetworkClass(ctx, request.GetObject(), existingNC)
+	// Merge the update into the existing object so that required-field
+	// validation works correctly for partial updates (field mask).
+	merged := cloneNetworkClass(existingNC)
+	applyNetworkClassUpdate(merged, request.GetObject(), request.GetUpdateMask())
+
+	// Validate the merged result against the original for immutability checks:
+	err = s.validateNetworkClass(ctx, merged, existingNC)
 	if err != nil {
 		return
 	}
@@ -202,4 +216,44 @@ func (s *PrivateNetworkClassesServer) validateNetworkClass(ctx context.Context,
 	}
 
 	return nil
+}
+
+// cloneNetworkClass creates a deep copy of a NetworkClass.
+func cloneNetworkClass(nc *privatev1.NetworkClass) *privatev1.NetworkClass {
+	return proto.Clone(nc).(*privatev1.NetworkClass)
+}
+
+// applyNetworkClassUpdate applies the update fields onto the base object,
+// respecting the field mask. If no mask is provided, all fields from the
+// update are applied.
+func applyNetworkClassUpdate(base, update *privatev1.NetworkClass, mask *fieldmaskpb.FieldMask) {
+	if mask == nil || len(mask.GetPaths()) == 0 {
+		proto.Merge(base, update)
+		return
+	}
+	for _, path := range mask.GetPaths() {
+		switch path {
+		case "status.state":
+			if base.Status == nil {
+				base.Status = &privatev1.NetworkClassStatus{}
+			}
+			base.Status.SetState(update.GetStatus().GetState())
+		case "status.message":
+			if base.Status == nil {
+				base.Status = &privatev1.NetworkClassStatus{}
+			}
+			base.Status.SetMessage(update.GetStatus().GetMessage())
+		case "title":
+			base.SetTitle(update.GetTitle())
+		case "description":
+			base.SetDescription(update.GetDescription())
+		case "implementation_strategy":
+			base.SetImplementationStrategy(update.GetImplementationStrategy())
+		case "capabilities":
+			base.SetCapabilities(update.GetCapabilities())
+		default:
+			// For unknown paths, fall through - the generic handler will
+			// reject invalid paths if needed.
+		}
+	}
 }
