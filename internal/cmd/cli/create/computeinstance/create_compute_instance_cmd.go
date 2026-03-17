@@ -116,17 +116,11 @@ func Cmd() *cobra.Command {
 		0,
 		"Boot disk size in GiB.",
 	)
-	flags.StringVar(
-		&runner.args.bootDiskStorageClass,
-		"boot-disk-storage-class",
-		"",
-		"Storage class for boot disk.",
-	)
 	flags.StringSliceVar(
 		&runner.args.additionalDisks,
 		"additional-disk",
 		[]string{},
-		"Additional disk in format 'size[:storage_class]' (e.g. '100' or '100:fast'). Repeatable.",
+		"Additional disk size in GiB (e.g. '100'). Repeatable.",
 	)
 	flags.StringVar(
 		&runner.args.runStrategy,
@@ -155,7 +149,6 @@ type runnerContext struct {
 		imageSourceType         string
 		sshKey                  string
 		bootDiskSizeGiB         int32
-		bootDiskStorageClass    string
 		additionalDisks         []string
 		runStrategy             string
 		userDataSecretRef       string
@@ -658,13 +651,9 @@ func (c *runnerContext) buildSpec(templateID string,
 		spec.SshKey = proto.String(c.args.sshKey)
 	}
 	if c.args.bootDiskSizeGiB > 0 {
-		bootDisk := publicv1.ComputeInstanceDisk_builder{
+		spec.BootDisk = publicv1.ComputeInstanceDisk_builder{
 			SizeGib: c.args.bootDiskSizeGiB,
-		}
-		if c.args.bootDiskStorageClass != "" {
-			bootDisk.StorageClass = proto.String(c.args.bootDiskStorageClass)
-		}
-		spec.BootDisk = bootDisk.Build()
+		}.Build()
 	}
 	if len(c.args.additionalDisks) > 0 {
 		disks, err := parseAdditionalDisks(c.args.additionalDisks)
@@ -682,34 +671,18 @@ func (c *runnerContext) buildSpec(templateID string,
 	return spec.Build(), nil
 }
 
-// parseAdditionalDisks parses disk specs in kubectl-style "key=value,key=value" format.
-// Example: "size=100,storageClass=fast"
+// parseAdditionalDisks parses disk sizes in GiB.
+// Example: "100"
 func parseAdditionalDisks(diskArgs []string) ([]*publicv1.ComputeInstanceDisk, error) {
 	disks := make([]*publicv1.ComputeInstanceDisk, 0, len(diskArgs))
 	for _, arg := range diskArgs {
-		fields := map[string]string{}
-		for _, pair := range strings.Split(arg, ",") {
-			kv := strings.SplitN(pair, "=", 2)
-			if len(kv) != 2 {
-				return nil, fmt.Errorf("invalid disk format '%s': expected key=value pairs separated by commas", arg)
-			}
-			fields[kv[0]] = kv[1]
-		}
-		sizeStr, ok := fields["size"]
-		if !ok {
-			return nil, fmt.Errorf("invalid disk format '%s': 'size' is required", arg)
-		}
-		sizeGiB, err := strconv.ParseInt(sizeStr, 10, 32)
+		sizeGiB, err := strconv.ParseInt(arg, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("invalid disk size '%s': %w", sizeStr, err)
+			return nil, fmt.Errorf("invalid disk size '%s': expected an integer number of GiB", arg)
 		}
-		disk := publicv1.ComputeInstanceDisk_builder{
+		disks = append(disks, publicv1.ComputeInstanceDisk_builder{
 			SizeGib: int32(sizeGiB),
-		}
-		if sc, ok := fields["storageClass"]; ok {
-			disk.StorageClass = proto.String(sc)
-		}
-		disks = append(disks, disk.Build())
+		}.Build())
 	}
 	return disks, nil
 }

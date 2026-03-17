@@ -505,24 +505,16 @@ func (t *task) addExplicitFields(spec map[string]any) {
 		}
 	}
 	if ciSpec.HasBootDisk() {
-		bootDisk := map[string]any{
+		spec["bootDisk"] = map[string]any{
 			"sizeGiB": int64(ciSpec.GetBootDisk().GetSizeGib()),
 		}
-		if ciSpec.GetBootDisk().HasStorageClass() {
-			bootDisk["storageClass"] = ciSpec.GetBootDisk().GetStorageClass()
-		}
-		spec["bootDisk"] = bootDisk
 	}
 	if len(ciSpec.GetAdditionalDisks()) > 0 {
 		disks := make([]any, 0, len(ciSpec.GetAdditionalDisks()))
 		for _, disk := range ciSpec.GetAdditionalDisks() {
-			d := map[string]any{
+			disks = append(disks, map[string]any{
 				"sizeGiB": int64(disk.GetSizeGib()),
-			}
-			if disk.HasStorageClass() {
-				d["storageClass"] = disk.GetStorageClass()
-			}
-			disks = append(disks, d)
+			})
 		}
 		spec["additionalDisks"] = disks
 	}

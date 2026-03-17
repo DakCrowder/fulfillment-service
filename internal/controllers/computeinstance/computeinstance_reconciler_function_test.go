@@ -92,16 +92,14 @@ var _ = Describe("buildSpec", func() {
 							SourceRef:  "quay.io/fedora/fedora:latest",
 						}.Build(),
 						BootDisk: privatev1.ComputeInstanceDisk_builder{
-							SizeGib:      20,
-							StorageClass: proto.String("fast"),
+							SizeGib: 20,
 						}.Build(),
 						AdditionalDisks: []*privatev1.ComputeInstanceDisk{
 							privatev1.ComputeInstanceDisk_builder{
 								SizeGib: 100,
 							}.Build(),
 							privatev1.ComputeInstanceDisk_builder{
-								SizeGib:      50,
-								StorageClass: proto.String("slow"),
+								SizeGib: 50,
 							}.Build(),
 						},
 					}.Build(),
@@ -123,7 +121,7 @@ var _ = Describe("buildSpec", func() {
 
 			bootDisk := spec["bootDisk"].(map[string]any)
 			Expect(bootDisk["sizeGiB"]).To(Equal(int64(20)))
-			Expect(bootDisk["storageClass"]).To(Equal("fast"))
+			Expect(bootDisk).ToNot(HaveKey("storageClass"))
 
 			additionalDisks := spec["additionalDisks"].([]any)
 			Expect(additionalDisks).To(HaveLen(2))
@@ -132,7 +130,7 @@ var _ = Describe("buildSpec", func() {
 			Expect(disk0).ToNot(HaveKey("storageClass"))
 			disk1 := additionalDisks[1].(map[string]any)
 			Expect(disk1["sizeGiB"]).To(Equal(int64(50)))
-			Expect(disk1["storageClass"]).To(Equal("slow"))
+			Expect(disk1).ToNot(HaveKey("storageClass"))
 
 			userDataRef := spec["userDataSecretRef"].(map[string]any)
 			Expect(userDataRef["name"]).To(Equal("test-explicit-fields-user-data"))

@@ -42,9 +42,6 @@ message ComputeInstanceImage {
 message ComputeInstanceDisk {
   // Disk size in GiB.
   int32 size_gib = 1;
-
-  // Storage class for the disk.
-  optional string storage_class = 2;
 }
 
 message ComputeInstanceSpec {
