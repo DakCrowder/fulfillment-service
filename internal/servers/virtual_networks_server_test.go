@@ -294,6 +294,32 @@ var _ = Describe("Virtual networks server", func() {
 			Expect(getResponse.GetObject().GetMetadata().GetName()).To(Equal("updated-name"))
 		})
 
+		It("Create object via public API sets default region", func() {
+			// Create a VirtualNetwork via the public server (no region field):
+			createResponse, err := publicServer.Create(ctx, publicv1.VirtualNetworksCreateRequest_builder{
+				Object: publicv1.VirtualNetwork_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: "public-vn",
+					}.Build(),
+					Spec: publicv1.VirtualNetworkSpec_builder{
+						NetworkClass: "default",
+						Ipv4Cidr:     proto.String("10.0.0.0/16"),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			publicObj := createResponse.GetObject()
+			Expect(publicObj.GetId()).ToNot(BeEmpty())
+			Expect(publicObj.GetSpec().GetNetworkClass()).To(Equal("default"))
+
+			// Verify via private server that region was set to "default":
+			privateGetResponse, err := privateServer.Get(ctx, privatev1.VirtualNetworksGetRequest_builder{
+				Id: publicObj.GetId(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(privateGetResponse.GetObject().GetSpec().GetRegion()).To(Equal("default"))
+		})
+
 		It("Delete object", func() {
 			// Create the object via the private server:
 			privateObj := createVirtualNetwork()

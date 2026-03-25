@@ -212,6 +212,11 @@ func (s *VirtualNetworksServer) Create(ctx context.Context,
 		return
 	}
 
+	// Set default region if not provided (public API doesn't expose region):
+	if privateVirtualNetwork.HasSpec() && privateVirtualNetwork.GetSpec().GetRegion() == "" {
+		privateVirtualNetwork.GetSpec().SetRegion("default")
+	}
+
 	// Delegate to the private server:
 	privateRequest := &privatev1.VirtualNetworksCreateRequest{}
 	privateRequest.SetObject(privateVirtualNetwork)
