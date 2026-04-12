@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -116,6 +117,9 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(writer, "ID:\t%s\n", ci.Id)
 	fmt.Fprintf(writer, "Template:\t%s\n", template)
 	fmt.Fprintf(writer, "State:\t%s\n", state)
+	if ci.Status != nil && ci.Status.GetLastRestartedAt() != nil {
+		fmt.Fprintf(writer, "Last Restarted At:\t%s\n", ci.Status.GetLastRestartedAt().AsTime().Format(time.RFC3339))
+	}
 	writer.Flush()
 
 	return nil
