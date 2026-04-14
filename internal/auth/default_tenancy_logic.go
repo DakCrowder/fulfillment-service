@@ -75,10 +75,17 @@ func (p *DefaultTenancyLogic) DetermineAssignableTenants(ctx context.Context) (r
 }
 
 // DetermineDefaultTenants extracts the subject from the auth context and returns the identifiers of the tenants
-// that will be assigned by default to objects.
+// that will be assigned by default to objects. When the subject has access to all tenants (e.g. an admin), the
+// default is the shared tenant because an infinite set can't be stored as the tenants of an object.
 func (p *DefaultTenancyLogic) DetermineDefaultTenants(ctx context.Context) (result collections.Set[string],
 	err error) {
 	result, err = p.DetermineAssignableTenants(ctx)
+	if err != nil {
+		return
+	}
+	if !result.Finite() {
+		result = SharedTenants
+	}
 	return
 }
 

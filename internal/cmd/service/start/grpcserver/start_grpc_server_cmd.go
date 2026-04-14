@@ -349,17 +349,17 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		"Creating public tenancy logic",
 		slog.String("type", c.args.tenancyLogic),
 	)
-	var publicTenancyLogic auth.TenancyLogic
+	var tenancyLogic auth.TenancyLogic
 	switch strings.ToLower(c.args.tenancyLogic) {
 	case "default":
-		publicTenancyLogic, err = auth.NewDefaultTenancyLogic().
+		tenancyLogic, err = auth.NewDefaultTenancyLogic().
 			SetLogger(c.logger).
 			Build()
 		if err != nil {
 			return fmt.Errorf("failed to create default tenancy logic: %w", err)
 		}
 	case "guest":
-		publicTenancyLogic, err = auth.NewGuestTenancyLogic().
+		tenancyLogic, err = auth.NewGuestTenancyLogic().
 			SetLogger(c.logger).
 			Build()
 		if err != nil {
@@ -379,15 +379,6 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create system attribution logic: %w", err)
-	}
-
-	// Create the system tenancy logic:
-	c.logger.InfoContext(ctx, "Creating private tenancy logic")
-	privateTenancyLogic, err := auth.NewSystemTenancyLogic().
-		SetLogger(c.logger).
-		Build()
-	if err != nil {
-		return fmt.Errorf("failed to create private tenancy logic: %w", err)
 	}
 
 	// Create the capabilities servers:
@@ -415,7 +406,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -429,7 +420,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -443,7 +434,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -457,7 +448,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -471,7 +462,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -485,7 +476,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -499,7 +490,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -513,7 +504,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -527,7 +518,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -541,7 +532,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -555,7 +546,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -569,7 +560,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -583,7 +574,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -597,7 +588,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -611,7 +602,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -625,7 +616,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -639,7 +630,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -653,7 +644,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(publicAttributionLogic).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -667,7 +658,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -681,7 +672,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(privateTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
 		Build()
 	if err != nil {
@@ -740,7 +731,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetLogger(c.logger).
 		SetFlags(c.flags).
 		SetDbUrl(dbTool.URL()).
-		SetTenancyLogic(publicTenancyLogic).
+		SetTenancyLogic(tenancyLogic).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create events server: %w", err)

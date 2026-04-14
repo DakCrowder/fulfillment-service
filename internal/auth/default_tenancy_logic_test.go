@@ -109,7 +109,7 @@ var _ = Describe("Default tenancy logic", func() {
 			Expect(result.Equal(collections.NewSet("tenant-a", "tenant-b"))).To(BeTrue())
 		})
 
-		It("Returns universal set when tenants is universal", func() {
+		It("Returns shared tenants when tenants is universal", func() {
 			subject := &Subject{
 				User:    "my_user",
 				Tenants: AllTenants,
@@ -117,7 +117,7 @@ var _ = Describe("Default tenancy logic", func() {
 			ctx = ContextWithSubject(ctx, subject)
 			result, err := logic.DetermineDefaultTenants(ctx)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Equal(AllTenants)).To(BeTrue())
+			Expect(result.Equal(SharedTenants)).To(BeTrue())
 		})
 
 		It("Fails if the subject has an empty tenants set", func() {

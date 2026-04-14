@@ -47,6 +47,13 @@ var _ = Describe("Tenancy logic", func() {
 
 		// Create a context:
 		ctx = context.Background()
+		ctx = auth.ContextWithSubject(
+			ctx,
+			&auth.Subject{
+				User:    "system",
+				Tenants: collections.NewUniversalSet[string](),
+			},
+		)
 
 		// Prepare the database pool:
 		db := server.MakeDatabase()
