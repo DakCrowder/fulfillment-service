@@ -30,6 +30,7 @@ import (
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
+	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
@@ -153,6 +154,11 @@ func (t *task) update(ctx context.Context) error {
 	// Set the default values:
 	t.setDefaults()
 
+	// Validate that exactly one tenant is assigned:
+	if err := t.validateTenant(); err != nil {
+		return err
+	}
+
 	// Do nothing if the order isn't progressing:
 	if t.cluster.GetStatus().GetState() != privatev1.ClusterState_CLUSTER_STATE_PROGRESSING {
 		return nil
@@ -207,6 +213,9 @@ func (t *task) update(ctx context.Context) error {
 		object.SetGenerateName(objectPrefix)
 		object.SetLabels(map[string]string{
 			labels.ClusterOrderUuid: t.cluster.GetId(),
+		})
+		object.SetAnnotations(map[string]string{
+			annotations.Tenant: t.cluster.GetMetadata().GetTenants()[0],
 		})
 		err = unstructured.SetNestedField(object.Object, spec, "spec")
 		if err != nil {
@@ -273,6 +282,13 @@ func (t *task) setConditionDefaults(value privatev1.ClusterConditionType) {
 		}.Build())
 		t.cluster.GetStatus().SetConditions(conditions)
 	}
+}
+
+func (t *task) validateTenant() error {
+	if !t.cluster.HasMetadata() || len(t.cluster.GetMetadata().GetTenants()) != 1 {
+		return errors.New("Cluster must have exactly one tenant assigned")
+	}
+	return nil
 }
 
 func (t *task) prepareNodeRequests() any {
