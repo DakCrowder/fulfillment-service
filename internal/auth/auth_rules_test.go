@@ -25,17 +25,12 @@ import (
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/ginkgo/v2/dsl/decorators"
 	. "github.com/onsi/gomega"
+	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/open-policy-agent/opa/v1/rego"
 	"gopkg.in/yaml.v3"
 
 	"github.com/osac-project/fulfillment-service/internal/jq"
 	"github.com/osac-project/fulfillment-service/internal/testing"
-
-	// We need to use these deprecated package because Authorino currently uses version 0 of the Rego language,
-	// which has some significant differences. For more details see here:
-	//
-	// https://github.com/Kuadrant/authorino/issues/546
-	"github.com/open-policy-agent/opa/ast"
-	"github.com/open-policy-agent/opa/rego"
 )
 
 var _ = Describe("Authorization rules", Ordered, func() {
@@ -150,7 +145,7 @@ var _ = Describe("Authorization rules", Ordered, func() {
 		// to do the same.
 		buffer := &strings.Builder{}
 		fmt.Fprintf(buffer, "package authz\n")
-		fmt.Fprintf(buffer, "default allow = false\n")
+		fmt.Fprintf(buffer, "default allow := false\n")
 		buffer.WriteString(rules)
 		rules = buffer.String()
 	})
