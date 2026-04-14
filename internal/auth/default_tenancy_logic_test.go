@@ -51,35 +51,89 @@ var _ = Describe("Default tenancy logic", func() {
 		})
 	})
 
-	Describe("Regular users authenticated with JWT", func() {
-		It("Returns the groups as assignable tenants", func() {
+	Describe("Determine assignable tenants", func() {
+		It("Returns the tenants from the subject", func() {
 			subject := &Subject{
-				User:   "my_user",
-				Groups: []string{"group1", "group2"},
-				Source: SubjectSourceJwt,
+				User:    "my_user",
+				Tenants: []string{"tenant-a", "tenant-b"},
 			}
 			ctx = ContextWithSubject(ctx, subject)
 			result, err := logic.DetermineAssignableTenants(ctx)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Equal(collections.NewSet("group1", "group2"))).To(BeTrue())
+			Expect(result.Equal(collections.NewSet("tenant-a", "tenant-b"))).To(BeTrue())
 		})
 
-		It("Returns the groups as default tenants", func() {
+		It("Returns multiple tenants when present", func() {
 			subject := &Subject{
-				User:   "my_user",
-				Groups: []string{"group1", "group2"},
-				Source: SubjectSourceJwt,
+				User:    "my_user",
+				Tenants: []string{"tenant-a", "tenant-b", "tenant-c"},
+			}
+			ctx = ContextWithSubject(ctx, subject)
+			result, err := logic.DetermineAssignableTenants(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Equal(collections.NewSet("tenant-a", "tenant-b", "tenant-c"))).To(BeTrue())
+		})
+
+		It("Fails if the subject has no tenants", func() {
+			subject := &Subject{
+				User: "my_user",
+			}
+			ctx = ContextWithSubject(ctx, subject)
+			_, err := logic.DetermineAssignableTenants(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("at least one tenant"))
+		})
+
+		It("Fails if the subject has an empty tenants list", func() {
+			subject := &Subject{
+				User:    "my_user",
+				Tenants: []string{},
+			}
+			ctx = ContextWithSubject(ctx, subject)
+			_, err := logic.DetermineAssignableTenants(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("at least one tenant"))
+		})
+	})
+
+	Describe("Determine default tenants", func() {
+		It("Returns the tenants from the subject", func() {
+			subject := &Subject{
+				User:    "my_user",
+				Tenants: []string{"tenant-a", "tenant-b"},
 			}
 			ctx = ContextWithSubject(ctx, subject)
 			result, err := logic.DetermineDefaultTenants(ctx)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Equal(collections.NewSet("group1", "group2"))).To(BeTrue())
+			Expect(result.Equal(collections.NewSet("tenant-a", "tenant-b"))).To(BeTrue())
 		})
 
-		It("Returns only shared as visible tenants when user has no groups", func() {
+		It("Fails if the subject has no tenants", func() {
 			subject := &Subject{
-				Source: SubjectSourceJwt,
-				User:   "my_user",
+				User: "my_user",
+			}
+			ctx = ContextWithSubject(ctx, subject)
+			_, err := logic.DetermineDefaultTenants(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("at least one tenant"))
+		})
+	})
+
+	Describe("Determine visible tenants", func() {
+		It("Returns tenants and shared", func() {
+			subject := &Subject{
+				User:    "my_user",
+				Tenants: []string{"tenant-a", "tenant-b"},
+			}
+			ctx = ContextWithSubject(ctx, subject)
+			result, err := logic.DetermineVisibleTenants(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Equal(SharedTenants.Union(collections.NewSet("tenant-a", "tenant-b")))).To(BeTrue())
+		})
+
+		It("Returns only shared when subject has no tenants", func() {
+			subject := &Subject{
+				User: "my_user",
 			}
 			ctx = ContextWithSubject(ctx, subject)
 			result, err := logic.DetermineVisibleTenants(ctx)
@@ -87,99 +141,15 @@ var _ = Describe("Default tenancy logic", func() {
 			Expect(result.Equal(SharedTenants)).To(BeTrue())
 		})
 
-		It("Returns the groups and shared as visible tenants", func() {
+		It("Returns only shared when tenants is empty", func() {
 			subject := &Subject{
-				User:   "my_user",
-				Groups: []string{"group1", "group2"},
-				Source: SubjectSourceJwt,
+				User:    "my_user",
+				Tenants: []string{},
 			}
 			ctx = ContextWithSubject(ctx, subject)
 			result, err := logic.DetermineVisibleTenants(ctx)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Equal(SharedTenants.Union(collections.NewSet("group1", "group2")))).To(BeTrue())
-		})
-	})
-
-	Describe("Service accounts", func() {
-		It("Returns the namespace as the assignable tenant for a service account", func() {
-			subject := &Subject{
-				User:   "system:serviceaccount:my-ns:my-sa",
-				Source: SubjectSourceServiceAccount,
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			result, err := logic.DetermineAssignableTenants(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Inclusions()).To(ConsistOf("my-ns"))
-		})
-
-		It("Returns the namespace as the default tenant for a service account", func() {
-			subject := &Subject{
-				User:   "system:serviceaccount:my-ns:my-sa",
-				Source: SubjectSourceServiceAccount,
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			result, err := logic.DetermineDefaultTenants(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Inclusions()).To(ConsistOf("my-ns"))
-		})
-
-		It("Returns the namespace and shared as visible tenants for a service account", func() {
-			subject := &Subject{
-				User:   "system:serviceaccount:my-ns:my-sa",
-				Source: SubjectSourceServiceAccount,
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			result, err := logic.DetermineVisibleTenants(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Inclusions()).To(ConsistOf("my-ns", "shared"))
-		})
-
-		It("Handles service accounts with different namespaces", func() {
-			subject := &Subject{
-				Source: SubjectSourceServiceAccount,
-				User:   "system:serviceaccount:another-ns:another-sa",
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			result, err := logic.DetermineDefaultTenants(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Inclusions()).To(ConsistOf("another-ns"))
-		})
-	})
-
-	Describe("Invalid subject source", func() {
-		It("Returns error for unknown source when determining assigned tenants", func() {
-			subject := &Subject{
-				User:   "my_user",
-				Source: SubjectSource("invalid"),
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			_, err := logic.DetermineDefaultTenants(ctx)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("unknown subject source"))
-			Expect(err.Error()).To(ContainSubstring("invalid"))
-		})
-
-		It("Returns error for unknown source when determining visible tenants", func() {
-			subject := &Subject{
-				User:   "my_user",
-				Source: SubjectSource("invalid"),
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			_, err := logic.DetermineVisibleTenants(ctx)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("unknown subject source"))
-			Expect(err.Error()).To(ContainSubstring("invalid"))
-		})
-
-		It("Returns error for empty source when determining assigned tenants", func() {
-			subject := &Subject{
-				User:   "my_user",
-				Source: SubjectSource(""),
-			}
-			ctx = ContextWithSubject(ctx, subject)
-			_, err := logic.DetermineDefaultTenants(ctx)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("unknown subject source"))
+			Expect(result.Equal(SharedTenants)).To(BeTrue())
 		})
 	})
 })

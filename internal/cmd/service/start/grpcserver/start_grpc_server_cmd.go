@@ -94,7 +94,7 @@ func Cmd() *cobra.Command {
 		&runner.args.tenancyLogic,
 		"tenancy-logic",
 		"default",
-		"Type of tenancy logic to use. Valid values are 'guest', 'default' and 'serviceaccount'.",
+		"Type of tenancy logic to use. Valid values are 'default' and 'guest'.",
 	)
 	return command
 }
@@ -358,13 +358,6 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create default tenancy logic: %w", err)
 		}
-	case "serviceaccount":
-		publicTenancyLogic, err = auth.NewServiceAccountTenancyLogic().
-			SetLogger(c.logger).
-			Build()
-		if err != nil {
-			return fmt.Errorf("failed to create service account tenancy logic: %w", err)
-		}
 	case "guest":
 		publicTenancyLogic, err = auth.NewGuestTenancyLogic().
 			SetLogger(c.logger).
@@ -374,7 +367,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		}
 	default:
 		return fmt.Errorf(
-			"unknown tenancy logic '%s', valid values are 'default', 'serviceaccount', and 'guest'",
+			"unknown tenancy logic '%s', valid values are 'default' and 'guest'",
 			c.args.tenancyLogic,
 		)
 	}

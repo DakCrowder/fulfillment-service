@@ -52,8 +52,7 @@ var _ = Describe("Default attribution logic", func() {
 				Build()
 			Expect(err).ToNot(HaveOccurred())
 			subject := &Subject{
-				User:   "my_creator",
-				Source: SubjectSourceJwt,
+				User: "my_creator",
 			}
 			ctx = ContextWithSubject(ctx, subject)
 			creators, err := logic.DetermineAssignedCreators(ctx)

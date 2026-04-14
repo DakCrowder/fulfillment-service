@@ -226,9 +226,8 @@ var _ = Describe("External authentication and authorization interceptor", func()
 			mock.Func = func(ctx context.Context,
 				request *envoyauthv3.CheckRequest) (response *envoyauthv3.CheckResponse, err error) {
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
-					Groups: []string{
+					User: "my-user",
+					Tenants: []string{
 						"my-group",
 					},
 				})
@@ -271,9 +270,8 @@ var _ = Describe("External authentication and authorization interceptor", func()
 			mock.Func = func(ctx context.Context,
 				request *envoyauthv3.CheckRequest) (response *envoyauthv3.CheckResponse, err error) {
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
-					Groups: []string{
+					User: "my-user",
+					Tenants: []string{
 						"my-group",
 					},
 				})
@@ -282,9 +280,8 @@ var _ = Describe("External authentication and authorization interceptor", func()
 			handler := func(ctx context.Context, _ any) (any, error) {
 				subject := SubjectFromContext(ctx)
 				Expect(subject).ToNot(BeNil())
-				Expect(subject.Source).To(Equal(SubjectSourceJwt))
 				Expect(subject.User).To(Equal("my-user"))
-				Expect(subject.Groups).To(ContainElements(
+				Expect(subject.Tenants).To(ContainElements(
 					"my-group",
 				))
 				return nil, nil
@@ -316,37 +313,11 @@ var _ = Describe("External authentication and authorization interceptor", func()
 			Expect(status.Message()).To(Equal("failed to check permissions"))
 		})
 
-		It("Fails if the external service returns a subject without a source", func() {
-			mock.Func = func(ctx context.Context,
-				request *envoyauthv3.CheckRequest) (response *envoyauthv3.CheckResponse, err error) {
-				response = makeOkResponse(&Subject{
-					User: "my-user",
-					Groups: []string{
-						"my-group",
-					},
-				})
-				return
-			}
-			handler := func(ctx context.Context, _ any) (any, error) {
-				return nil, nil
-			}
-			info := &grpc.UnaryServerInfo{
-				FullMethod: "/osac.private.v1.Service/Method",
-			}
-			_, err := interceptor.UnaryServer(ctx, nil, info, handler)
-			Expect(err).To(HaveOccurred())
-			status, ok := grpcstatus.FromError(err)
-			Expect(ok).To(BeTrue())
-			Expect(status.Code()).To(Equal(grpccodes.Internal))
-			Expect(status.Message()).To(Equal("failed to check permissions"))
-		})
-
 		It("Fails if the external service returns a subject without a name", func() {
 			mock.Func = func(ctx context.Context,
 				request *envoyauthv3.CheckRequest) (response *envoyauthv3.CheckResponse, err error) {
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					Groups: []string{
+					Tenants: []string{
 						"my-group",
 					},
 				})
@@ -374,9 +345,8 @@ var _ = Describe("External authentication and authorization interceptor", func()
 				Expect(headers).To(HaveKeyWithValue("authorization", "Bearer my-token"))
 				Expect(headers).To(HaveKeyWithValue("x-my-header", "my-value"))
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
-					Groups: []string{
+					User: "my-user",
+					Tenants: []string{
 						"my-group",
 					},
 				})
@@ -404,8 +374,7 @@ var _ = Describe("External authentication and authorization interceptor", func()
 				extensions := request.GetAttributes().GetContextExtensions()
 				Expect(extensions).To(HaveKeyWithValue("id", "my-cluster-123"))
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
+					User: "my-user",
 				})
 				return
 			}
@@ -429,8 +398,7 @@ var _ = Describe("External authentication and authorization interceptor", func()
 				extensions := request.GetAttributes().GetContextExtensions()
 				Expect(extensions).To(HaveKeyWithValue("id", "my-cluster-456"))
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
+					User: "my-user",
 				})
 				return
 			}
@@ -454,8 +422,7 @@ var _ = Describe("External authentication and authorization interceptor", func()
 				extensions := request.GetAttributes().GetContextExtensions()
 				Expect(extensions).To(HaveKeyWithValue("id", "my-cluster-789"))
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
+					User: "my-user",
 				})
 				return
 			}
@@ -481,8 +448,7 @@ var _ = Describe("External authentication and authorization interceptor", func()
 				extensions := request.GetAttributes().GetContextExtensions()
 				Expect(extensions).ToNot(HaveKey("id"))
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
+					User: "my-user",
 				})
 				return
 			}
@@ -504,8 +470,7 @@ var _ = Describe("External authentication and authorization interceptor", func()
 				extensions := request.GetAttributes().GetContextExtensions()
 				Expect(extensions).ToNot(HaveKey("id"))
 				response = makeOkResponse(&Subject{
-					Source: SubjectSourceJwt,
-					User:   "my-user",
+					User: "my-user",
 				})
 				return
 			}

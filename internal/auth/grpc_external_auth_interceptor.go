@@ -384,10 +384,6 @@ func (i *GrpcExternalAuthInterceptor) subjectFromHeader(header *envoycorev3.Head
 		err = fmt.Errorf("failed to unmarshal subject from header '%s' with value '%s': %w", key, value, err)
 		return
 	}
-	if subject.Source == "" {
-		err = fmt.Errorf("header '%s' is missing the 'source' field", key)
-		return
-	}
 	if subject.User == "" {
 		err = fmt.Errorf("header '%s' is missing the 'user' field", key)
 		return

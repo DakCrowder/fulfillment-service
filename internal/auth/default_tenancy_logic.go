@@ -26,13 +26,10 @@ type DefaultTenancyLogicBuilder struct {
 	logger *slog.Logger
 }
 
-// DefaultTenancyLogic is the default implementation of TenancyLogic that supports both service accounts and regular
-// users authenticated with JWT. It checks the user name prefix to determine the type and delegates to the appropriate
-// logic.
+// DefaultTenancyLogic is the default implementation of TenancyLogic. It reads the tenants directly from the subject,
+// which are expected to have been populated by the external authentication and authorization service.
 type DefaultTenancyLogic struct {
-	logger      *slog.Logger
-	saDelegate  TenancyLogic
-	jwtDelegate TenancyLogic
+	logger *slog.Logger
 }
 
 // NewDefaultTenancyLogic creates a new builder for default tenancy logic.
@@ -49,77 +46,47 @@ func (b *DefaultTenancyLogicBuilder) SetLogger(value *slog.Logger) *DefaultTenan
 // Build creates the default tenancy logic that extracts the subject from the auth context and returns the identifiers
 // of the tenants.
 func (b *DefaultTenancyLogicBuilder) Build() (result *DefaultTenancyLogic, err error) {
-	// Check that the logger has been set:
 	if b.logger == nil {
 		err = fmt.Errorf("logger is mandatory")
 		return
 	}
-
-	// Create the delegates:
-	saDelegate, err := NewServiceAccountTenancyLogic().
-		SetLogger(b.logger).
-		Build()
-	if err != nil {
-		return
-	}
-	jwtDelegate, err := NewJwtTenancyLogic().
-		SetLogger(b.logger).
-		Build()
-	if err != nil {
-		return
-	}
-
-	// Create the tenancy logic:
 	result = &DefaultTenancyLogic{
-		logger:      b.logger,
-		saDelegate:  saDelegate,
-		jwtDelegate: jwtDelegate,
+		logger: b.logger,
 	}
 	return
 }
 
 // DetermineAssignableTenants extracts the subject from the auth context and returns the identifiers of the tenants
 // that can be assigned to objects.
-func (p *DefaultTenancyLogic) DetermineAssignableTenants(ctx context.Context) (result collections.Set[string], err error) {
+func (p *DefaultTenancyLogic) DetermineAssignableTenants(ctx context.Context) (result collections.Set[string],
+	err error) {
 	subject := SubjectFromContext(ctx)
-	delegate, err := p.selectDelegate(subject)
-	if err != nil {
+	result = collections.NewSet(subject.Tenants...)
+	if len(subject.Tenants) == 0 {
+		p.logger.ErrorContext(
+			ctx,
+			"Subject has no tenants",
+			slog.String("user", subject.User),
+		)
+		err = fmt.Errorf("subject must belong to at least one tenant to create objects")
 		return
 	}
-	return delegate.DetermineAssignableTenants(ctx)
+	return
 }
 
 // DetermineDefaultTenants extracts the subject from the auth context and returns the identifiers of the tenants
 // that will be assigned by default to objects.
-func (p *DefaultTenancyLogic) DetermineDefaultTenants(ctx context.Context) (result collections.Set[string], err error) {
-	subject := SubjectFromContext(ctx)
-	delegate, err := p.selectDelegate(subject)
-	if err != nil {
-		return
-	}
-	return delegate.DetermineDefaultTenants(ctx)
+func (p *DefaultTenancyLogic) DetermineDefaultTenants(ctx context.Context) (result collections.Set[string],
+	err error) {
+	result, err = p.DetermineAssignableTenants(ctx)
+	return
 }
 
 // DetermineVisibleTenants extracts the subject from the auth context and returns the identifiers of the tenants
-// that the current user has permission to see.
-func (p *DefaultTenancyLogic) DetermineVisibleTenants(ctx context.Context) (result collections.Set[string], err error) {
+// that the current user has permission to see, including the shared tenant.
+func (p *DefaultTenancyLogic) DetermineVisibleTenants(ctx context.Context) (result collections.Set[string],
+	err error) {
 	subject := SubjectFromContext(ctx)
-	delegate, err := p.selectDelegate(subject)
-	if err != nil {
-		return
-	}
-	return delegate.DetermineVisibleTenants(ctx)
-}
-
-// selectDelegate selects the appropriate tenancy logic delegate based on the subject source.
-func (p *DefaultTenancyLogic) selectDelegate(subject *Subject) (result TenancyLogic, err error) {
-	switch subject.Source {
-	case SubjectSourceServiceAccount:
-		result = p.saDelegate
-	case SubjectSourceJwt, SubjectSourceNone:
-		result = p.jwtDelegate
-	default:
-		err = fmt.Errorf("unknown subject source '%s'", subject.Source)
-	}
+	result = SharedTenants.Union(collections.NewSet(subject.Tenants...))
 	return
 }

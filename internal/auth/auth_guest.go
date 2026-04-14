@@ -15,8 +15,7 @@ package auth
 
 // Guest is the subject used when no authentication has been performed.
 var Guest = &Subject{
-	User:   guestName,
-	Source: SubjectSourceNone,
+	User: guestName,
 }
 
 const guestName = "guest"

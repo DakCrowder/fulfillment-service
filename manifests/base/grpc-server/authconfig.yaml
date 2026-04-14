@@ -163,12 +163,13 @@ spec:
         "x-subject":
           json:
             properties:
-              source:
-                expression: |
-                  auth.identity.authnMethod
               user:
                 expression: |
-                  auth.identity.authnMethod == "serviceaccount"? auth.identity.user.username: auth.identity.username
-              groups:
+                  auth.identity.authnMethod == "jwt"
+                    ? auth.identity.username
+                    : auth.identity.user.username.split(":")[3]
+              tenants:
                 expression: |
-                  auth.identity.authnMethod == "serviceaccount"? auth.identity.user.groups: auth.identity.groups
+                  auth.identity.authnMethod == "jwt"
+                    ? auth.identity.groups
+                    : [auth.identity.user.username.split(":")[2]]

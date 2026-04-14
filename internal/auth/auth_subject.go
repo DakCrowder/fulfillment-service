@@ -13,28 +13,11 @@ language governing permissions and limitations under the License.
 
 package auth
 
-// SubjectSource represents the kind of sources from which subjects are extracted.
-type SubjectSource string
-
-const (
-	// SubjectSourceJwt indicates the subject was extracted from a JWT token.
-	SubjectSourceJwt SubjectSource = "jwt"
-
-	// SubjectSourceServiceAccount indicates the subject was extracted from a Kubernetes service account.
-	SubjectSourceServiceAccount SubjectSource = "serviceaccount"
-
-	// SubjectSourceNone indicates the subject represents an unauthenticated guest.
-	SubjectSourceNone SubjectSource = "none"
-)
-
 // Subject represents an entity, such as person or a service account.
 type Subject struct {
-	// Source is the source from which the subject was extracted, service account, JSON web token, etc.
-	Source SubjectSource `json:"source"`
-
 	// User is the name of the user.
 	User string `json:"user"`
 
-	// Groups are the names of the groups that the subject belongs to.
-	Groups []string `json:"groups"`
+	// Tenants are the identifiers of the tenants that the subject belongs to.
+	Tenants []string `json:"tenants"`
 }
