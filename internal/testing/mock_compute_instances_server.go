@@ -58,6 +58,19 @@ func (s *MockComputeInstancesServer) Create(ctx context.Context, request *public
 	if instance == nil {
 		return nil, status.Error(codes.InvalidArgument, "object is required")
 	}
+	if instance.GetSpec() == nil || instance.GetSpec().GetTemplate() == "" {
+		return nil, status.Error(codes.InvalidArgument, "object.spec.template is required")
+	}
+	templateFound := false
+	for _, t := range s.scenario.Templates {
+		if t.ID == instance.GetSpec().GetTemplate() {
+			templateFound = true
+			break
+		}
+	}
+	if !templateFound {
+		return nil, status.Errorf(codes.InvalidArgument, "unknown template %q", instance.GetSpec().GetTemplate())
+	}
 
 	// Generate ID if not provided
 	if instance.Id == "" {
