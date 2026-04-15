@@ -16,6 +16,7 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "google/protobuf/any.proto";
+import "osac/private/v1/compute_instance_type.proto";
 import "osac/private/v1/metadata_type.proto";
 
 message ComputeInstanceTemplate {
@@ -25,6 +26,12 @@ message ComputeInstanceTemplate {
   string title = 3;
   string description = 4;
   repeated ComputeInstanceTemplateParameterDefinition parameters = 5;
+
+  // Default values for compute instance spec fields. When a user creates a
+  // compute instance without setting these fields, these values are applied.
+  //
+  // User-provided spec field values always override these defaults.
+  ComputeInstanceTemplateSpecDefaults spec_defaults = 6;
 }
 
 message ComputeInstanceTemplateParameterDefinition {
@@ -34,4 +41,22 @@ message ComputeInstanceTemplateParameterDefinition {
   bool required = 4;
   string type = 5;
   google.protobuf.Any default = 6;
+}
+
+// Default values for compute instance spec fields.
+message ComputeInstanceTemplateSpecDefaults {
+  // Default number of CPU cores.
+  optional int32 cores = 1;
+
+  // Default memory size in GiB.
+  optional int32 memory_gib = 2;
+
+  // Default image configuration.
+  optional ComputeInstanceImage image = 3;
+
+  // Default boot disk configuration.
+  optional ComputeInstanceDisk boot_disk = 4;
+
+  // Default run strategy.
+  optional string run_strategy = 5;
 }

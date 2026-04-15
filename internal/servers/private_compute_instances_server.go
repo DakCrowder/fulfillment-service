@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
@@ -167,8 +168,14 @@ func (s *PrivateComputeInstancesServer) Create(ctx context.Context,
 		return
 	}
 
-	// Validate template:
-	err = s.validateTemplate(ctx, request.GetObject())
+	// Fetch and validate template:
+	template, err := s.fetchAndValidateTemplate(ctx, request.GetObject())
+	if err != nil {
+		return
+	}
+
+	// Validate that all required spec fields would be present after overlaying template defaults.
+	err = s.validateSpecWithDefaults(request.GetObject().GetSpec(), template)
 	if err != nil {
 		return
 	}
@@ -189,7 +196,7 @@ func (s *PrivateComputeInstancesServer) Update(ctx context.Context,
 		}
 	}
 	if hasMaskPrefix(mask, "spec.template", "spec.template_parameters") {
-		err = s.validateTemplate(ctx, request.GetObject())
+		_, err = s.fetchAndValidateTemplate(ctx, request.GetObject())
 		if err != nil {
 			return
 		}
@@ -211,23 +218,46 @@ func (s *PrivateComputeInstancesServer) Signal(ctx context.Context,
 	return
 }
 
-// validateTemplate validates the template ID and parameters in the compute instance spec.
-func (s *PrivateComputeInstancesServer) validateTemplate(ctx context.Context, vm *privatev1.ComputeInstance) error {
+// fetchAndValidateTemplate fetches the template, validates parameters in the compute instance spec,
+// applies template parameter defaults, and returns the template.
+func (s *PrivateComputeInstancesServer) fetchAndValidateTemplate(ctx context.Context, vm *privatev1.ComputeInstance) (*privatev1.ComputeInstanceTemplate, error) {
 	if vm == nil {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance is mandatory")
+		return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance is mandatory")
 	}
 
 	spec := vm.GetSpec()
 	if spec == nil {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance spec is mandatory")
+		return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance spec is mandatory")
 	}
 
-	templateID := spec.GetTemplate()
+	template, err := s.fetchTemplate(ctx, spec.GetTemplate())
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate template parameters:
+	vmParameters := spec.GetTemplateParameters()
+	err = utils.ValidateComputeInstanceTemplateParameters(template, vmParameters)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set default values for template parameters:
+	actualVmParameters := utils.ProcessTemplateParametersWithDefaults(
+		utils.ComputeInstanceTemplateAdapter{ComputeInstanceTemplate: template},
+		vmParameters,
+	)
+	spec.SetTemplateParameters(actualVmParameters)
+
+	return template, nil
+}
+
+// fetchTemplate fetches a compute instance template
+func (s *PrivateComputeInstancesServer) fetchTemplate(ctx context.Context, templateID string) (*privatev1.ComputeInstanceTemplate, error) {
 	if templateID == "" {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "template ID is mandatory")
+		return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "template ID is mandatory")
 	}
 
-	// Get the template:
 	getTemplateResponse, err := s.templatesDao.Get().
 		SetId(templateID).
 		Do(ctx)
@@ -238,7 +268,7 @@ func (s *PrivateComputeInstancesServer) validateTemplate(ctx context.Context, vm
 			slog.String("template_id", templateID),
 			slog.Any("error", err),
 		)
-		return grpcstatus.Errorf(
+		return nil, grpcstatus.Errorf(
 			grpccodes.Internal,
 			"failed to retrieve template '%s'",
 			templateID,
@@ -246,28 +276,25 @@ func (s *PrivateComputeInstancesServer) validateTemplate(ctx context.Context, vm
 	}
 	template := getTemplateResponse.GetObject()
 	if template == nil {
-		return grpcstatus.Errorf(
+		return nil, grpcstatus.Errorf(
 			grpccodes.InvalidArgument,
 			"template '%s' does not exist",
 			templateID,
 		)
 	}
 
-	// Validate template parameters:
-	vmParameters := spec.GetTemplateParameters()
-	err = utils.ValidateComputeInstanceTemplateParameters(template, vmParameters)
-	if err != nil {
-		return err
-	}
+	return template, nil
+}
 
-	// Set default values for template parameters:
-	actualVmParameters := utils.ProcessTemplateParametersWithDefaults(
-		utils.ComputeInstanceTemplateAdapter{ComputeInstanceTemplate: template},
-		vmParameters,
-	)
-	spec.SetTemplateParameters(actualVmParameters)
-
-	return nil
+// validateSpecWithDefaults clones the spec, applies template defaults to the clone,
+// and validates that all required fields are present. The original spec is not modified.
+func (s *PrivateComputeInstancesServer) validateSpecWithDefaults(
+	spec *privatev1.ComputeInstanceSpec,
+	template *privatev1.ComputeInstanceTemplate,
+) error {
+	clone := proto.Clone(spec).(*privatev1.ComputeInstanceSpec)
+	utils.ApplySpecDefaults(clone, template.GetSpecDefaults())
+	return utils.ValidateRequiredSpecFields(clone)
 }
 
 func hasMaskPrefix(mask *fieldmaskpb.FieldMask, prefixes ...string) bool {

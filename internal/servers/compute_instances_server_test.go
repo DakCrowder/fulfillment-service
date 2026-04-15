@@ -172,6 +172,18 @@ var _ = Describe("Compute instances server", func() {
 						Default:     memoryDefault,
 					},
 				},
+				SpecDefaults: privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+					Cores:     proto.Int32(2),
+					MemoryGib: proto.Int32(2),
+					Image: privatev1.ComputeInstanceImage_builder{
+						SourceType: "registry",
+						SourceRef:  "quay.io/containerdisks/fedora:latest",
+					}.Build(),
+					BootDisk: privatev1.ComputeInstanceDisk_builder{
+						SizeGib: 10,
+					}.Build(),
+					RunStrategy: proto.String("Always"),
+				}.Build(),
 			}.Build()
 
 			_, err = templatesDao.Create().SetObject(template).Do(ctx)
@@ -479,6 +491,33 @@ var _ = Describe("Compute instances server", func() {
 			response, err := server.Delete(ctx, publicv1.ComputeInstancesDeleteRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			Expect(response).To(BeNil())
+		})
+
+		It("User-provided values survive public-to-private mapping, defaults are not stored", func() {
+			createTemplate("mapping-template")
+
+			// Create with some user-provided fields and let template cover the rest for validation:
+			response, err := server.Create(ctx, publicv1.ComputeInstancesCreateRequest_builder{
+				Object: publicv1.ComputeInstance_builder{
+					Spec: publicv1.ComputeInstanceSpec_builder{
+						Template:    "mapping-template",
+						Cores:       proto.Int32(8),
+						MemoryGib:   proto.Int32(16),
+						RunStrategy: proto.String("Halted"),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).ToNot(BeNil())
+
+			spec := response.GetObject().GetSpec()
+			// User-provided values preserved through mapping:
+			Expect(spec.GetCores()).To(Equal(int32(8)))
+			Expect(spec.GetMemoryGib()).To(Equal(int32(16)))
+			Expect(spec.GetRunStrategy()).To(Equal("Halted"))
+			// Template defaults should NOT be stored:
+			Expect(spec.HasImage()).To(BeFalse())
+			Expect(spec.HasBootDisk()).To(BeFalse())
 		})
 	})
 })

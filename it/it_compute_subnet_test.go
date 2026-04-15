@@ -177,9 +177,10 @@ var _ = Describe("ComputeInstance with Subnet attachment", func() {
 			Object: publicv1.ComputeInstance_builder{
 				Id: computeInstanceId,
 				Spec: publicv1.ComputeInstanceSpec_builder{
-					Template:  computeInstanceTemplateId,
-					Cores:     proto.Int32(2),
-					MemoryGib: proto.Int32(4),
+					Template:    computeInstanceTemplateId,
+					Cores:       proto.Int32(2),
+					MemoryGib:   proto.Int32(4),
+					RunStrategy: proto.String("Always"),
 					BootDisk: publicv1.ComputeInstanceDisk_builder{
 						SizeGib: 20,
 					}.Build(),
@@ -208,9 +209,10 @@ var _ = Describe("ComputeInstance with Subnet attachment", func() {
 			Object: publicv1.ComputeInstance_builder{
 				Id: computeInstanceId,
 				Spec: publicv1.ComputeInstanceSpec_builder{
-					Template:  computeInstanceTemplateId,
-					Cores:     proto.Int32(2),
-					MemoryGib: proto.Int32(4),
+					Template:    computeInstanceTemplateId,
+					Cores:       proto.Int32(2),
+					MemoryGib:   proto.Int32(4),
+					RunStrategy: proto.String("Always"),
 					BootDisk: publicv1.ComputeInstanceDisk_builder{
 						SizeGib: 20,
 					}.Build(),

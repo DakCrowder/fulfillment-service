@@ -16,6 +16,7 @@ syntax = "proto3";
 package osac.public.v1;
 
 import "google/protobuf/any.proto";
+import "osac/public/v1/compute_instance_type.proto";
 import "osac/public/v1/metadata_type.proto";
 
 // A compute instance template defines a type of compute instance that can be created by the user. Note that the user doesn't create these
@@ -38,6 +39,12 @@ message ComputeInstanceTemplate {
   // Note that these are only the *definitions* of the parameters, not the actual values. The actual values are in the
   // `spec.template_parameters` field of the compute instance.
   repeated ComputeInstanceTemplateParameterDefinition parameters = 5;
+
+  // Default values for compute instance spec fields. When a user creates a
+  // compute instance without setting these fields, these values are applied.
+  //
+  // User-provided spec field values always override these defaults.
+  ComputeInstanceTemplateSpecDefaults spec_defaults = 6;
 }
 
 // Contains type and documentation of a template parameter.
@@ -87,4 +94,22 @@ message ComputeInstanceTemplateParameterDefinition {
 
   // Default value for optional parameters.
   google.protobuf.Any default = 6;
+}
+
+// Default values for compute instance spec fields.
+message ComputeInstanceTemplateSpecDefaults {
+  // Default number of CPU cores.
+  optional int32 cores = 1;
+
+  // Default memory size in GiB.
+  optional int32 memory_gib = 2;
+
+  // Default image configuration.
+  optional ComputeInstanceImage image = 3;
+
+  // Default boot disk configuration.
+  optional ComputeInstanceDisk boot_disk = 4;
+
+  // Default run strategy.
+  optional string run_strategy = 5;
 }

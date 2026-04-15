@@ -119,7 +119,7 @@ func MakeDatabaseServer() *DatabaseServer {
 	)
 	handle, err := sql.Open("pgx", url)
 	Expect(err).ToNot(HaveOccurred())
-	Eventually(handle.Ping, 10, 1).ShouldNot(HaveOccurred())
+	Eventually(handle.Ping, 30, 1).ShouldNot(HaveOccurred())
 
 	// Create and populate the object:
 	return &DatabaseServer{

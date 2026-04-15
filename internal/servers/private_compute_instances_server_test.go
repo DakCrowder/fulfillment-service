@@ -281,6 +281,18 @@ var _ = Describe("Private compute instances server", func() {
 						Default:     memoryDefault,
 					},
 				},
+				SpecDefaults: privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+					Cores:     proto.Int32(2),
+					MemoryGib: proto.Int32(2),
+					Image: privatev1.ComputeInstanceImage_builder{
+						SourceType: "registry",
+						SourceRef:  "quay.io/containerdisks/fedora:latest",
+					}.Build(),
+					BootDisk: privatev1.ComputeInstanceDisk_builder{
+						SizeGib: 10,
+					}.Build(),
+					RunStrategy: proto.String("Always"),
+				}.Build(),
 			}.Build()
 
 			_, err = templatesDao.Create().SetObject(template).Do(ctx)
@@ -634,6 +646,194 @@ var _ = Describe("Private compute instances server", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(response).To(BeNil())
 		})
+
+		It("Validates spec defaults from template without storing them", func() {
+			createTemplate("defaults-template")
+
+			// Create a compute instance without any spec fields — validation should pass
+			// because template defaults cover all required fields, but defaults should NOT
+			// be stored on the object (the template is the source of truth at render time):
+			response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+				Object: privatev1.ComputeInstance_builder{
+					Spec: privatev1.ComputeInstanceSpec_builder{
+						Template: "defaults-template",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).ToNot(BeNil())
+
+			spec := response.GetObject().GetSpec()
+			// Template defaults should NOT be baked into the stored object:
+			Expect(spec.HasCores()).To(BeFalse())
+			Expect(spec.HasMemoryGib()).To(BeFalse())
+			Expect(spec.HasRunStrategy()).To(BeFalse())
+			Expect(spec.HasImage()).To(BeFalse())
+			Expect(spec.HasBootDisk()).To(BeFalse())
+			// Template reference should be preserved:
+			Expect(spec.GetTemplate()).To(Equal("defaults-template"))
+		})
+
+		It("User spec fields are stored, template defaults are not", func() {
+			createTemplate("override-template")
+
+			// Create with user-provided cores and memory:
+			response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+				Object: privatev1.ComputeInstance_builder{
+					Spec: privatev1.ComputeInstanceSpec_builder{
+						Template:    "override-template",
+						Cores:       proto.Int32(8),
+						MemoryGib:   proto.Int32(16),
+						RunStrategy: proto.String("Halted"),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).ToNot(BeNil())
+
+			spec := response.GetObject().GetSpec()
+			// User-provided values should be stored:
+			Expect(spec.GetCores()).To(Equal(int32(8)))
+			Expect(spec.GetMemoryGib()).To(Equal(int32(16)))
+			Expect(spec.GetRunStrategy()).To(Equal("Halted"))
+			// Template-defaulted fields should NOT be stored:
+			Expect(spec.HasImage()).To(BeFalse())
+			Expect(spec.HasBootDisk()).To(BeFalse())
+		})
+
+		It("Rejects creation when required spec fields are missing", func() {
+			// Create a template WITHOUT spec defaults:
+			templatesDao, err := dao.NewGenericDAO[*privatev1.ComputeInstanceTemplate]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			template := privatev1.ComputeInstanceTemplate_builder{
+				Id:          "no-defaults-template",
+				Title:       "No Defaults Template",
+				Description: "Template without spec defaults",
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+			}.Build()
+			_, err = templatesDao.Create().SetObject(template).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create a compute instance without user-provided spec fields:
+			response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+				Object: privatev1.ComputeInstance_builder{
+					Spec: privatev1.ComputeInstanceSpec_builder{
+						Template: "no-defaults-template",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			Expect(response).To(BeNil())
+
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("boot_disk"))
+			Expect(status.Message()).To(ContainSubstring("cores"))
+			Expect(status.Message()).To(ContainSubstring("image"))
+			Expect(status.Message()).To(ContainSubstring("memory_gib"))
+			Expect(status.Message()).To(ContainSubstring("run_strategy"))
+		})
+
+		It("Accepts creation when user provides all required fields without template defaults", func() {
+			// Create a template WITHOUT spec defaults:
+			templatesDao, err := dao.NewGenericDAO[*privatev1.ComputeInstanceTemplate]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			template := privatev1.ComputeInstanceTemplate_builder{
+				Id:          "bare-template",
+				Title:       "Bare Template",
+				Description: "Template without defaults",
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+			}.Build()
+			_, err = templatesDao.Create().SetObject(template).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create with all required fields provided by user:
+			response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+				Object: privatev1.ComputeInstance_builder{
+					Spec: privatev1.ComputeInstanceSpec_builder{
+						Template:  "bare-template",
+						Cores:     proto.Int32(4),
+						MemoryGib: proto.Int32(8),
+						Image: privatev1.ComputeInstanceImage_builder{
+							SourceType: "registry",
+							SourceRef:  "quay.io/containerdisks/fedora:latest",
+						}.Build(),
+						BootDisk: privatev1.ComputeInstanceDisk_builder{
+							SizeGib: 20,
+						}.Build(),
+						RunStrategy: proto.String("Always"),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).ToNot(BeNil())
+			Expect(response.GetObject().GetSpec().GetCores()).To(Equal(int32(4)))
+		})
+
+		It("Partial defaults plus partial user input satisfies validation", func() {
+			// Create a template with only some spec defaults:
+			templatesDao, err := dao.NewGenericDAO[*privatev1.ComputeInstanceTemplate]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			template := privatev1.ComputeInstanceTemplate_builder{
+				Id:          "partial-defaults-template",
+				Title:       "Partial Defaults Template",
+				Description: "Template with partial spec defaults",
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				SpecDefaults: privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+					Cores:       proto.Int32(2),
+					MemoryGib:   proto.Int32(4),
+					RunStrategy: proto.String("Always"),
+				}.Build(),
+			}.Build()
+			_, err = templatesDao.Create().SetObject(template).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// User provides the remaining required fields:
+			response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+				Object: privatev1.ComputeInstance_builder{
+					Spec: privatev1.ComputeInstanceSpec_builder{
+						Template: "partial-defaults-template",
+						Image: privatev1.ComputeInstanceImage_builder{
+							SourceType: "registry",
+							SourceRef:  "quay.io/containerdisks/fedora:latest",
+						}.Build(),
+						BootDisk: privatev1.ComputeInstanceDisk_builder{
+							SizeGib: 20,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).ToNot(BeNil())
+
+			spec := response.GetObject().GetSpec()
+			// Template-defaulted fields should NOT be stored:
+			Expect(spec.HasCores()).To(BeFalse())
+			Expect(spec.HasMemoryGib()).To(BeFalse())
+			Expect(spec.HasRunStrategy()).To(BeFalse())
+			// User-provided fields should be stored:
+			Expect(spec.GetImage().GetSourceRef()).To(Equal("quay.io/containerdisks/fedora:latest"))
+			Expect(spec.GetBootDisk().GetSizeGib()).To(Equal(int32(20)))
+		})
 	})
 
 	Describe("Network validation", func() {
@@ -688,6 +888,18 @@ var _ = Describe("Private compute instances server", func() {
 						Default:     memoryDefault,
 					},
 				},
+				SpecDefaults: privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+					Cores:     proto.Int32(2),
+					MemoryGib: proto.Int32(2),
+					Image: privatev1.ComputeInstanceImage_builder{
+						SourceType: "registry",
+						SourceRef:  "quay.io/containerdisks/fedora:latest",
+					}.Build(),
+					BootDisk: privatev1.ComputeInstanceDisk_builder{
+						SizeGib: 10,
+					}.Build(),
+					RunStrategy: proto.String("Always"),
+				}.Build(),
 			}.Build()
 
 			_, err = templatesDao.Create().SetObject(template).Do(ctx)
