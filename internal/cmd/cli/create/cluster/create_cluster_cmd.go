@@ -80,6 +80,48 @@ func Cmd() *cobra.Command {
 		[]string{},
 		"Template parameter from file in the format 'name=filename'.",
 	)
+	flags.StringVar(
+		&runner.args.pullSecret,
+		"pull-secret",
+		"",
+		"Pull secret for authenticating to image repositories (inline value).",
+	)
+	flags.StringVar(
+		&runner.args.pullSecretFile,
+		"pull-secret-file",
+		"",
+		"Path to a file containing the pull secret.",
+	)
+	flags.StringVar(
+		&runner.args.sshPublicKey,
+		"ssh-public-key",
+		"",
+		"SSH public key to install on cluster worker nodes.",
+	)
+	flags.StringVar(
+		&runner.args.sshPublicKeyFile,
+		"ssh-public-key-file",
+		"",
+		"Path to a file containing the SSH public key.",
+	)
+	flags.StringVar(
+		&runner.args.releaseImage,
+		"release-image",
+		"",
+		"OCP release image URL (e.g., quay.io/openshift-release-dev/ocp-release:4.17.0-multi).",
+	)
+	flags.StringVar(
+		&runner.args.podCIDR,
+		"pod-cidr",
+		"",
+		"CIDR for the cluster's pod network (default: 10.128.0.0/14).",
+	)
+	flags.StringVar(
+		&runner.args.serviceCIDR,
+		"service-cidr",
+		"",
+		"CIDR for the cluster's service network (default: 172.30.0.0/16).",
+	)
 	return result
 }
 
@@ -89,6 +131,13 @@ type runnerContext struct {
 		template                string
 		templateParameterValues []string
 		templateParameterFiles  []string
+		pullSecret              string
+		pullSecretFile          string
+		sshPublicKey            string
+		sshPublicKeyFile        string
+		releaseImage            string
+		podCIDR                 string
+		serviceCIDR             string
 	}
 	logger          *slog.Logger
 	console         *terminal.Console
@@ -169,15 +218,57 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		return exit.Error(1)
 	}
 
+	// Resolve pull secret (--pull-secret-file takes precedence over --pull-secret):
+	pullSecret := c.args.pullSecret
+	if c.args.pullSecretFile != "" {
+		data, readErr := os.ReadFile(c.args.pullSecretFile)
+		if readErr != nil {
+			return fmt.Errorf("failed to read pull secret file '%s': %w", c.args.pullSecretFile, readErr)
+		}
+		pullSecret = strings.TrimSpace(string(data))
+	}
+
+	// Resolve SSH public key (--ssh-public-key-file takes precedence over --ssh-public-key):
+	sshPublicKey := c.args.sshPublicKey
+	if c.args.sshPublicKeyFile != "" {
+		data, readErr := os.ReadFile(c.args.sshPublicKeyFile)
+		if readErr != nil {
+			return fmt.Errorf("failed to read SSH public key file '%s': %w", c.args.sshPublicKeyFile, readErr)
+		}
+		sshPublicKey = strings.TrimSpace(string(data))
+	}
+
+	// Build the cluster spec:
+	specBuilder := publicv1.ClusterSpec_builder{
+		Template:           template.GetId(),
+		TemplateParameters: templateParameterValues,
+	}
+	if pullSecret != "" {
+		specBuilder.PullSecret = &pullSecret
+	}
+	if sshPublicKey != "" {
+		specBuilder.SshPublicKey = &sshPublicKey
+	}
+	if c.args.releaseImage != "" {
+		specBuilder.ReleaseImage = &c.args.releaseImage
+	}
+	if c.args.podCIDR != "" || c.args.serviceCIDR != "" {
+		networkBuilder := publicv1.ClusterNetwork_builder{}
+		if c.args.podCIDR != "" {
+			networkBuilder.PodCidr = &c.args.podCIDR
+		}
+		if c.args.serviceCIDR != "" {
+			networkBuilder.ServiceCidr = &c.args.serviceCIDR
+		}
+		specBuilder.Network = networkBuilder.Build()
+	}
+
 	// Prepare the cluster:
 	cluster := publicv1.Cluster_builder{
 		Metadata: publicv1.Metadata_builder{
 			Name: c.args.name,
 		}.Build(),
-		Spec: publicv1.ClusterSpec_builder{
-			Template:           template.GetId(),
-			TemplateParameters: templateParameterValues,
-		}.Build(),
+		Spec: specBuilder.Build(),
 	}.Build()
 
 	// Create the cluster:
