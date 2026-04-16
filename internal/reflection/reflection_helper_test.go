@@ -142,6 +142,7 @@ var _ = Describe("Reflection helper", func() {
 				"organization",
 				"securitygroup",
 				"subnet",
+				"user",
 				"virtualnetwork",
 			))
 		})
@@ -157,6 +158,7 @@ var _ = Describe("Reflection helper", func() {
 				"organizations",
 				"securitygroups",
 				"subnets",
+				"users",
 				"virtualnetworks",
 			))
 		})

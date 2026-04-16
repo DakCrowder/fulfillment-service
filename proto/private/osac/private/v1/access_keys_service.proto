@@ -1,0 +1,129 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.private.v1;
+
+import "google/api/annotations.proto";
+import "osac/private/v1/access_key_type.proto";
+
+message AccessKeysListRequest {
+  optional int32 offset = 1;
+  optional int32 limit = 2;
+  optional string filter = 3;
+  string user_id = 4;
+  string organization_id = 5;
+}
+
+message AccessKeysListResponse {
+  int32 size = 1;
+  int32 total = 2;
+  repeated AccessKey items = 3;
+}
+
+message AccessKeysGetRequest {
+  string id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+}
+
+message AccessKeysGetResponse {
+  AccessKey object = 1;
+}
+
+message AccessKeysCreateRequest {
+  AccessKey object = 1;
+}
+
+message AccessKeysCreateResponse {
+  AccessKey object = 1;
+  AccessKeyCredentials credentials = 2;
+}
+
+message AccessKeysDisableRequest {
+  string id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+}
+
+message AccessKeysDisableResponse {
+  AccessKey object = 1;
+}
+
+message AccessKeysEnableRequest {
+  string id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+}
+
+message AccessKeysEnableResponse {
+  AccessKey object = 1;
+}
+
+message AccessKeysDeleteRequest {
+  string id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+}
+
+message AccessKeysDeleteResponse {}
+
+message AccessKeysSignalRequest {
+  string id = 1;
+}
+
+message AccessKeysSignalResponse {}
+
+service AccessKeys {
+  rpc List(AccessKeysListRequest) returns (AccessKeysListResponse) {
+    option (google.api.http) = {get: "/api/private/v1/organizations/{organization_id}/users/{user_id}/access-keys"};
+  }
+
+  rpc Get(AccessKeysGetRequest) returns (AccessKeysGetResponse) {
+    option (google.api.http) = {
+      get: "/api/private/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}"
+      response_body: "object"
+    };
+  }
+
+  rpc Create(AccessKeysCreateRequest) returns (AccessKeysCreateResponse) {
+    option (google.api.http) = {
+      post: "/api/private/v1/organizations/{object.spec.organization_id}/users/{object.spec.user_id}/access-keys"
+      body: "object"
+      response_body: "object"
+    };
+  }
+
+  rpc Disable(AccessKeysDisableRequest) returns (AccessKeysDisableResponse) {
+    option (google.api.http) = {
+      post: "/api/private/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}:disable"
+      body: "*"
+      response_body: "object"
+    };
+  }
+
+  rpc Enable(AccessKeysEnableRequest) returns (AccessKeysEnableResponse) {
+    option (google.api.http) = {
+      post: "/api/private/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}:enable"
+      body: "*"
+      response_body: "object"
+    };
+  }
+
+  rpc Delete(AccessKeysDeleteRequest) returns (AccessKeysDeleteResponse) {
+    option (google.api.http) = {delete: "/api/private/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}"};
+  }
+
+  rpc Signal(AccessKeysSignalRequest) returns (AccessKeysSignalResponse) {}
+}

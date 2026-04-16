@@ -1,0 +1,72 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.public.v1;
+
+import "google/protobuf/timestamp.proto";
+import "osac/public/v1/metadata_type.proto";
+
+// An access key provides programmatic API access for a user.
+message AccessKey {
+  // Unique identifier of the access key.
+  string id = 1;
+
+  Metadata metadata = 2;
+
+  // Specification of the access key.
+  AccessKeySpec spec = 3;
+
+  // Status of the access key.
+  AccessKeyStatus status = 4;
+}
+
+// AccessKeySpec contains the desired state of the access key.
+message AccessKeySpec {
+  // User ID that owns this access key.
+  string user_id = 1;
+
+  // Organization ID that the user belongs to.
+  string organization_id = 2;
+
+  // Whether the access key is enabled.
+  // When disabled, authentication attempts will be rejected.
+  bool enabled = 3;
+}
+
+// AccessKeyStatus contains the observed state of the access key.
+message AccessKeyStatus {
+  // The access key's current state.
+  string phase = 1;
+
+  // Last time the key was used for authentication.
+  google.protobuf.Timestamp last_used_time = 2;
+}
+
+// AccessKeyCredentials contains the secret credentials for an access key.
+// This is only returned on access key creation and must be stored securely by the caller.
+message AccessKeyCredentials {
+  // Public access key identifier.
+  // Format: OSAC{16 random chars}
+  string access_key_id = 1;
+
+  // Secret access key value.
+  // SECURITY: This field contains sensitive data and should be handled carefully:
+  // - Only transmitted over TLS
+  // - Store in a secure secrets manager (Vault, Kubernetes Secrets, AWS Secrets Manager)
+  // - Never log this value
+  // - Clear from memory after use
+  // Format: 40 random characters (base64-encoded random bytes)
+  string secret_access_key = 2;
+}

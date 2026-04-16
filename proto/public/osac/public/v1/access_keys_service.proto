@@ -1,0 +1,168 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.public.v1;
+
+import "google/api/annotations.proto";
+import "osac/public/v1/access_key_type.proto";
+
+message AccessKeysListRequest {
+  // Index of the first result. If not specified the default value will be zero.
+  optional int32 offset = 1;
+
+  // Maximum number of results to be returned by the server. When not specified all the results will be returned. Note
+  // that there may not be enough results to return, and that the server may decide, for performance reasons, to return
+  // less results than requested.
+  optional int32 limit = 2;
+
+  // Filter criteria.
+  //
+  // The value of this parameter is a [CEL](https://cel.dev) expression used to select which objects to return.
+  // If this isn't provided, or if the value is empty, then all the access keys that the caller has permission to see will be
+  // returned.
+  optional string filter = 3;
+
+  // User ID to list access keys for.
+  string user_id = 4;
+
+  // Organization ID.
+  string organization_id = 5;
+}
+
+message AccessKeysListResponse {
+  // Actual number of items returned.
+  int32 size = 1;
+
+  // Total number of items matching criteria.
+  int32 total = 2;
+
+  // List of access keys.
+  repeated AccessKey items = 3;
+}
+
+message AccessKeysGetRequest {
+  string id = 1;
+
+  // Organization ID.
+  string organization_id = 2;
+
+  // User ID.
+  string user_id = 3;
+}
+
+message AccessKeysGetResponse {
+  AccessKey object = 1;
+}
+
+message AccessKeysCreateRequest {
+  AccessKey object = 1;
+}
+
+message AccessKeysCreateResponse {
+  AccessKey object = 1;
+
+  // Access key credentials.
+  // Only populated on successful creation. These credentials must be stored securely.
+  AccessKeyCredentials credentials = 2;
+}
+
+message AccessKeysDisableRequest {
+  string id = 1;
+
+  // Organization ID.
+  string organization_id = 2;
+
+  // User ID.
+  string user_id = 3;
+}
+
+message AccessKeysDisableResponse {
+  AccessKey object = 1;
+}
+
+message AccessKeysEnableRequest {
+  string id = 1;
+
+  // Organization ID.
+  string organization_id = 2;
+
+  // User ID.
+  string user_id = 3;
+}
+
+message AccessKeysEnableResponse {
+  AccessKey object = 1;
+}
+
+message AccessKeysDeleteRequest {
+  string id = 1;
+
+  // Organization ID.
+  string organization_id = 2;
+
+  // User ID.
+  string user_id = 3;
+}
+
+message AccessKeysDeleteResponse {}
+
+service AccessKeys {
+  // Retrieves the list of access keys for a user.
+  rpc List(AccessKeysListRequest) returns (AccessKeysListResponse) {
+    option (google.api.http) = {get: "/api/fulfillment/v1/organizations/{organization_id}/users/{user_id}/access-keys"};
+  }
+
+  // Retrieves the details of one specific access key.
+  rpc Get(AccessKeysGetRequest) returns (AccessKeysGetResponse) {
+    option (google.api.http) = {
+      get: "/api/fulfillment/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}"
+      response_body: "object"
+    };
+  }
+
+  // Creates a new access key for a user.
+  // Returns the access key credentials which must be stored securely.
+  rpc Create(AccessKeysCreateRequest) returns (AccessKeysCreateResponse) {
+    option (google.api.http) = {
+      post: "/api/fulfillment/v1/organizations/{object.spec.organization_id}/users/{object.spec.user_id}/access-keys"
+      body: "object"
+      response_body: "object"
+    };
+  }
+
+  // Disables an access key.
+  // Disabled keys cannot be used for authentication.
+  rpc Disable(AccessKeysDisableRequest) returns (AccessKeysDisableResponse) {
+    option (google.api.http) = {
+      post: "/api/fulfillment/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}:disable"
+      body: "*"
+      response_body: "object"
+    };
+  }
+
+  // Re-enables a disabled access key.
+  rpc Enable(AccessKeysEnableRequest) returns (AccessKeysEnableResponse) {
+    option (google.api.http) = {
+      post: "/api/fulfillment/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}:enable"
+      body: "*"
+      response_body: "object"
+    };
+  }
+
+  // Deletes an access key.
+  rpc Delete(AccessKeysDeleteRequest) returns (AccessKeysDeleteResponse) {
+    option (google.api.http) = {delete: "/api/fulfillment/v1/organizations/{organization_id}/users/{user_id}/access-keys/{id}"};
+  }
+}
