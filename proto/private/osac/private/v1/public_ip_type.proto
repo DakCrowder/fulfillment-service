@@ -1,0 +1,145 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.private.v1;
+
+import "google/api/field_behavior.proto";
+import "osac/private/v1/metadata_type.proto";
+
+// Represents a public IP address allocated from a PublicIPPool.
+//
+// A PublicIP is a floating public IP address that can be optionally attached to a ComputeInstance.
+// IPs are allocated from a parent PublicIPPool's CIDR ranges. The pool assignment is immutable
+// after creation, while the compute_instance attachment can be changed to move the IP between
+// instances.
+//
+// The lifecycle follows: PENDING (awaiting allocation) -> ALLOCATED (IP assigned, not attached) ->
+// ATTACHED (bound to a ComputeInstance) -> RELEASING (being deallocated). Detaching from a
+// ComputeInstance returns the PublicIP to the ALLOCATED state.
+message PublicIP {
+  // Unique identifier of the public IP.
+  string id = 1;
+
+  // Metadata of the public IP, including name, labels, and timestamps.
+  Metadata metadata = 2;
+
+  // Desired configuration of the public IP (user-specified).
+  PublicIPSpec spec = 3;
+
+  // Current state of the public IP (system-provided, read-only).
+  PublicIPStatus status = 4;
+}
+
+// Defines the desired configuration for a PublicIP.
+//
+// The pool field is required and immutable: once a PublicIP is allocated from a pool, it cannot
+// be moved to a different pool. The compute_instance field is optional and mutable, allowing the
+// IP to be attached to or detached from ComputeInstances over its lifetime.
+message PublicIPSpec {
+  // Parent PublicIPPool ID. Required and immutable after creation.
+  //
+  // Must reference the ID of an existing PublicIPPool in READY state. The system allocates an
+  // available IP address from this pool's CIDR ranges during provisioning.
+  //
+  // Example: "pool-abc123"
+  string pool = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = IMMUTABLE
+  ];
+
+  // ComputeInstance ID to attach this public IP to. Optional.
+  //
+  // When set, the system binds this public IP to the specified ComputeInstance, making the
+  // instance reachable at the allocated address. When cleared, the IP is detached and returns
+  // to the ALLOCATED state (the address is retained but no longer routes to an instance).
+  //
+  // Example: "ci-xyz789"
+  optional string compute_instance = 2;
+}
+
+// Represents the current operational state of a PublicIP.
+//
+// Status is system-provided and read-only. Users cannot modify status fields directly; the system
+// updates them based on reconciliation of the spec and feedback from the cluster controller.
+message PublicIPStatus {
+  // Current lifecycle state of the public IP.
+  PublicIPState state = 1;
+
+  // Human-readable message providing additional details about the current state.
+  //
+  // For PENDING state, may contain progress information like "Waiting for IP allocation".
+  // For RELEASING state, may contain cleanup progress. Typically empty for ALLOCATED and
+  // ATTACHED states.
+  optional string message = 2;
+
+  // Identifier of the hub cluster that this public IP is deployed to.
+  //
+  // Set by the fulfillment-service controller when reconciling the public IP to a Kubernetes CR
+  // on the target hub cluster. Used for tracking which cluster the IP resources reside on.
+  string hub = 3;
+
+  // Allocated IP address from the parent pool's CIDR range.
+  //
+  // Populated once the IP transitions to ALLOCATED state. Remains stable through ATTACHED and
+  // back to ALLOCATED. Cleared only during RELEASING.
+  string address = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Parent PublicIPPool ID that this IP was allocated from.
+  //
+  // Mirrors spec.pool for convenience in status queries. Populated when the IP is allocated.
+  string pool = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Region where this public IP is located.
+  //
+  // Inherited from the parent PublicIPPool's region. Set during allocation and remains constant
+  // for the lifetime of the PublicIP.
+  string region = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Lifecycle states for PublicIP resources.
+//
+// State transitions follow the attachment lifecycle: UNSPECIFIED -> PENDING -> ALLOCATED ->
+// ATTACHED -> RELEASING. A PublicIP in ATTACHED state can return to ALLOCATED when detached
+// from its ComputeInstance.
+enum PublicIPState {
+  // State is unknown or has not been determined yet. Default state before initialization.
+  PUBLIC_IP_STATE_UNSPECIFIED = 0;
+
+  // The public IP is being provisioned and an address has not been assigned yet.
+  //
+  // During this state, the system is creating the MetalLB LoadBalancer Service on the target
+  // cluster and waiting for an IP address to be allocated from the parent pool's CIDR range.
+  PUBLIC_IP_STATE_PENDING = 1;
+
+  // The public IP has been assigned an address but is not attached to any ComputeInstance.
+  //
+  // The address is allocated and reserved. The IP can be attached to a ComputeInstance by
+  // setting spec.compute_instance, which transitions it to ATTACHED. Detaching from an
+  // instance returns the IP to this state.
+  PUBLIC_IP_STATE_ALLOCATED = 2;
+
+  // The public IP is attached to a ComputeInstance and actively routing traffic.
+  //
+  // The allocated address is bound to the ComputeInstance specified in spec.compute_instance.
+  // Clearing the compute_instance field detaches the IP and returns it to ALLOCATED.
+  PUBLIC_IP_STATE_ATTACHED = 3;
+
+  // The public IP is being released and its address returned to the parent pool.
+  //
+  // During this state, the system is removing the MetalLB LoadBalancer Service and cleaning
+  // up cluster resources. The IP address will be returned to the pool's available capacity
+  // once release completes.
+  PUBLIC_IP_STATE_RELEASING = 4;
+}
