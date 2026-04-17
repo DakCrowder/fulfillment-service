@@ -1060,7 +1060,7 @@ var _ = Describe("Private subnets server", func() {
 
 			// List subnets for vn1 only
 			response, err := generic.List().
-				SetFilter(fmt.Sprintf("this.spec.virtual_network == '%s'", vn1.GetId())).
+				SetFilter(fmt.Sprintf("this.spec.virtual_network == %q", vn1.GetId())).
 				Do(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(response.GetItems()).To(HaveLen(3))

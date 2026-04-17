@@ -35,6 +35,7 @@ var _ = Describe("Describe command", func() {
 			Expect(cmd.Aliases).To(ContainElement(expectedAlias))
 		},
 		Entry("cluster", cluster.Cmd, "clusters"),
+		Entry("computeinstance", computeinstance.Cmd, "computeinstances"),
 		Entry("virtualnetwork", virtualnetwork.Cmd, "virtualnetworks"),
 		Entry("subnet", subnet.Cmd, "subnets"),
 		Entry("securitygroup", securitygroup.Cmd, "securitygroups"),
@@ -51,13 +52,6 @@ var _ = Describe("Describe command", func() {
 			}
 
 			Expect(subcommandNames).To(ContainElements("cluster", "computeinstance", "virtualnetwork", "subnet", "securitygroup"))
-		})
-	})
-
-	Describe("computeinstance has no aliases", func() {
-		It("should have no aliases", func() {
-			cmd := computeinstance.Cmd()
-			Expect(cmd.Aliases).To(BeEmpty())
 		})
 	})
 

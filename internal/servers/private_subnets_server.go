@@ -361,7 +361,7 @@ func (s *PrivateSubnetsServer) validateNoCIDROverlap(ctx context.Context,
 	spec *privatev1.SubnetSpec) error {
 
 	// Fetch all existing subnets for the same VirtualNetwork using pagination:
-	filter := fmt.Sprintf("this.spec.virtual_network == '%s'", spec.GetVirtualNetwork())
+	filter := fmt.Sprintf("this.spec.virtual_network == %q", spec.GetVirtualNetwork())
 	var allSubnets []*privatev1.Subnet
 	var offset int32
 	for {

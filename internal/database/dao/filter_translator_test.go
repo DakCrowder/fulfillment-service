@@ -257,5 +257,25 @@ var _ = Describe("Filter translator", func() {
 			`'mylabel' in this.metadata.labels`,
 			`labels ? 'mylabel'`,
 		),
+		Entry(
+			"Double-quoted string with single quote from %q",
+			`this.id == "it's"`,
+			`id = e'it\'s'`,
+		),
+		Entry(
+			"Double-quoted string with escaped double quote from %q",
+			`this.id == "say \"hello\""`,
+			`id = 'say "hello"'`,
+		),
+		Entry(
+			"Double-quoted string with backslash from %q",
+			`this.id == "path\\to\\thing"`,
+			`id = 'path\\to\\thing'`,
+		),
+		Entry(
+			"Double-quoted string with CEL injection attempt from %q",
+			`this.id == "'] || true || this.id in ['"`,
+			`id = e'\'] || true || this.id in [\''`,
+		),
 	)
 })
