@@ -477,10 +477,13 @@ func (r *TableRenderer) lookupName(ctx context.Context, messageFullName protoref
 		return
 	}
 
-	// Return the name of the first object:
+	// Return the name of the first object, falling back to the key if the name is empty:
 	object := listResult.Items[0]
 	metadata := helper.GetMetadata(object)
 	result = metadata.GetName()
+	if result == "" {
+		result = key
+	}
 	return
 }
 
