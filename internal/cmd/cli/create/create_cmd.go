@@ -31,6 +31,9 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/cmd/cli/create/cluster"
 	"github.com/osac-project/fulfillment-service/internal/cmd/cli/create/computeinstance"
 	"github.com/osac-project/fulfillment-service/internal/cmd/cli/create/hub"
+	"github.com/osac-project/fulfillment-service/internal/cmd/cli/create/securitygroup"
+	"github.com/osac-project/fulfillment-service/internal/cmd/cli/create/subnet"
+	"github.com/osac-project/fulfillment-service/internal/cmd/cli/create/virtualnetwork"
 	"github.com/osac-project/fulfillment-service/internal/config"
 	"github.com/osac-project/fulfillment-service/internal/logging"
 	"github.com/osac-project/fulfillment-service/internal/reflection"
@@ -47,6 +50,9 @@ func Cmd() *cobra.Command {
 	result.AddCommand(cluster.Cmd())
 	result.AddCommand(computeinstance.Cmd())
 	result.AddCommand(hub.Cmd())
+	result.AddCommand(virtualnetwork.Cmd())
+	result.AddCommand(subnet.Cmd())
+	result.AddCommand(securitygroup.Cmd())
 	flags := result.Flags()
 	flags.StringVarP(
 		&runner.args.file,

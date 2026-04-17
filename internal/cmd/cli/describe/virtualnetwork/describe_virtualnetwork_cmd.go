@@ -1,0 +1,142 @@
+/*
+Copyright (c) 2025 Red Hat Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
+License. You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific
+language governing permissions and limitations under the License.
+*/
+
+package virtualnetwork
+
+import (
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+
+	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
+	"github.com/osac-project/fulfillment-service/internal/config"
+	"github.com/osac-project/fulfillment-service/internal/logging"
+	"github.com/osac-project/fulfillment-service/internal/terminal"
+)
+
+// Cmd creates the command to describe a virtual network.
+func Cmd() *cobra.Command {
+	runner := &runnerContext{}
+	result := &cobra.Command{
+		Use:     "virtualnetwork [flags] ID_OR_NAME",
+		Aliases: []string{"virtualnetworks"},
+		Short:   "Describe a virtual network",
+		Long:    "Display detailed information about a virtual network, identified by ID or name.",
+		Example: `  # Describe a virtual network by ID
+  osac describe virtualnetwork vnet-abc123
+
+  # Describe a virtual network by name
+  osac describe virtualnetwork my-network`,
+		Args: cobra.ExactArgs(1),
+		RunE: runner.run,
+	}
+	return result
+}
+
+type runnerContext struct {
+	logger  *slog.Logger
+	console *terminal.Console
+}
+
+func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
+	ref := args[0]
+
+	ctx := cmd.Context()
+
+	c.logger = logging.LoggerFromContext(ctx)
+	c.console = terminal.ConsoleFromContext(ctx)
+
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg.Address == "" {
+		return fmt.Errorf("there is no configuration, run the 'login' command")
+	}
+
+	conn, err := cfg.Connect(ctx, cmd.Flags())
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC connection: %w", err)
+	}
+	defer conn.Close()
+
+	client := publicv1.NewVirtualNetworksClient(conn)
+
+	filter := fmt.Sprintf(`this.id == %[1]q || this.metadata.name == %[1]q`, ref)
+	listResponse, err := client.List(ctx, publicv1.VirtualNetworksListRequest_builder{
+		Filter: &filter,
+	}.Build())
+	if err != nil {
+		return fmt.Errorf("failed to describe virtual network: %w", err)
+	}
+	if len(listResponse.GetItems()) == 0 {
+		return fmt.Errorf("virtual network not found: %s", ref)
+	}
+	if len(listResponse.GetItems()) > 1 {
+		return fmt.Errorf("multiple virtual networks match '%s', use the ID instead", ref)
+	}
+
+	response, err := client.Get(ctx, publicv1.VirtualNetworksGetRequest_builder{
+		Id: listResponse.GetItems()[0].GetId(),
+	}.Build())
+	if err != nil {
+		return fmt.Errorf("failed to describe virtual network: %w", err)
+	}
+
+	vn := response.Object
+	RenderVirtualNetwork(c.console, vn)
+
+	return nil
+}
+
+// RenderVirtualNetwork writes a formatted description of vn to w.
+func RenderVirtualNetwork(w io.Writer, vn *publicv1.VirtualNetwork) {
+	writer := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+
+	name := "-"
+	if v := vn.GetMetadata().GetName(); v != "" {
+		name = v
+	}
+
+	ipv4Cidr := "-"
+	if v := vn.GetSpec().GetIpv4Cidr(); v != "" {
+		ipv4Cidr = v
+	}
+
+	ipv6Cidr := "-"
+	if v := vn.GetSpec().GetIpv6Cidr(); v != "" {
+		ipv6Cidr = v
+	}
+
+	state := "-"
+	message := "-"
+	if vn.GetStatus() != nil {
+		state = strings.TrimPrefix(vn.GetStatus().GetState().String(), "VIRTUAL_NETWORK_STATE_")
+		if v := vn.GetStatus().GetMessage(); v != "" {
+			message = v
+		}
+	}
+
+	fmt.Fprintf(writer, "ID:\t%s\n", vn.GetId())
+	fmt.Fprintf(writer, "Name:\t%s\n", name)
+	fmt.Fprintf(writer, "Network Class:\t%s\n", vn.GetSpec().GetNetworkClass())
+	fmt.Fprintf(writer, "IPv4 CIDR:\t%s\n", ipv4Cidr)
+	fmt.Fprintf(writer, "IPv6 CIDR:\t%s\n", ipv6Cidr)
+	fmt.Fprintf(writer, "State:\t%s\n", state)
+	fmt.Fprintf(writer, "Message:\t%s\n", message)
+	writer.Flush()
+}
