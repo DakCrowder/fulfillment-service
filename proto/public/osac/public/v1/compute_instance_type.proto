@@ -184,7 +184,7 @@ message ComputeInstanceStatus {
   //            "last_transition_time": "2025-03-12 20:14:22+00:00"
   //          },
   //          {
-  //            "type": "COMPUTE_INSTANCE_CONDITION_TYPE_AVAILABLE",
+  //            "type": "COMPUTE_INSTANCE_CONDITION_TYPE_READY",
   //            "status": "CONDITION_STATUS_TRUE",
   //            "last_transition_time": "2025-03-12 20:15:59+00:00"
   //          }
@@ -294,10 +294,13 @@ enum ComputeInstanceConditionType {
   // provisioning or after a spec update).
   COMPUTE_INSTANCE_CONDITION_TYPE_CONFIGURATION_APPLIED = 1;
 
-  // Indicates that the compute instance is available.
+  // Indicates that the compute instance is ready and accessible.
   //
-  // Currently there are no `reason` values defined.
-  COMPUTE_INSTANCE_CONDITION_TYPE_AVAILABLE = 2;
+  // Mirrors the KubeVirt VirtualMachine Ready condition (virt-launcher readiness probe).
+  //
+  // Possible `reason` values:
+  // - `AsExpected`: Normal operational state.
+  COMPUTE_INSTANCE_CONDITION_TYPE_READY = 2;
 
   // Indicates that a restart is in progress.
   //
@@ -325,6 +328,12 @@ enum ComputeInstanceConditionType {
   // infrastructure resources are allocated.
   //
   // When `status` is `FALSE`, infrastructure provisioning is in progress.
+  //
+  // Possible `reason` values:
+  // - `TenantNotReady`: The parent tenant is not yet in a ready state.
+  // - `WaitingForVM`: VirtualMachine has not been created yet.
+  // - `ProvisioningStorage`: DataVolumes are being created for boot and additional disks.
+  // - `InfrastructureReady`: All infrastructure resources provisioned successfully.
   COMPUTE_INSTANCE_CONDITION_TYPE_PROVISIONED = 5;
 
   // Indicates that the compute instance requires a restart for configuration changes

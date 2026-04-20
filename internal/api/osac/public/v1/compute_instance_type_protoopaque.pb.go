@@ -125,7 +125,7 @@ const (
 	// Indicates that the compute instance is available.
 	//
 	// Currently there are no `reason` values defined.
-	ComputeInstanceConditionType_COMPUTE_INSTANCE_CONDITION_TYPE_AVAILABLE ComputeInstanceConditionType = 2
+	ComputeInstanceConditionType_COMPUTE_INSTANCE_CONDITION_TYPE_READY ComputeInstanceConditionType = 2
 	// Indicates that a restart is in progress.
 	//
 	// When `status` is `TRUE`, it means a restart is currently in progress.
@@ -166,7 +166,7 @@ var (
 	ComputeInstanceConditionType_name = map[int32]string{
 		0: "COMPUTE_INSTANCE_CONDITION_TYPE_UNSPECIFIED",
 		1: "COMPUTE_INSTANCE_CONDITION_TYPE_CONFIGURATION_APPLIED",
-		2: "COMPUTE_INSTANCE_CONDITION_TYPE_AVAILABLE",
+		2: "COMPUTE_INSTANCE_CONDITION_TYPE_READY",
 		3: "COMPUTE_INSTANCE_CONDITION_TYPE_RESTART_IN_PROGRESS",
 		4: "COMPUTE_INSTANCE_CONDITION_TYPE_RESTART_FAILED",
 		5: "COMPUTE_INSTANCE_CONDITION_TYPE_PROVISIONED",
@@ -175,7 +175,7 @@ var (
 	ComputeInstanceConditionType_value = map[string]int32{
 		"COMPUTE_INSTANCE_CONDITION_TYPE_UNSPECIFIED":           0,
 		"COMPUTE_INSTANCE_CONDITION_TYPE_CONFIGURATION_APPLIED": 1,
-		"COMPUTE_INSTANCE_CONDITION_TYPE_AVAILABLE":             2,
+		"COMPUTE_INSTANCE_CONDITION_TYPE_READY":             2,
 		"COMPUTE_INSTANCE_CONDITION_TYPE_RESTART_IN_PROGRESS":   3,
 		"COMPUTE_INSTANCE_CONDITION_TYPE_RESTART_FAILED":        4,
 		"COMPUTE_INSTANCE_CONDITION_TYPE_PROVISIONED":           5,
@@ -1047,7 +1047,7 @@ type ComputeInstanceStatus_builder struct {
 	//	        "last_transition_time": "2025-03-12 20:14:22+00:00"
 	//	      },
 	//	      {
-	//	        "type": "COMPUTE_INSTANCE_CONDITION_TYPE_AVAILABLE",
+	//	        "type": "COMPUTE_INSTANCE_CONDITION_TYPE_READY",
 	//	        "status": "CONDITION_STATUS_TRUE",
 	//	        "last_transition_time": "2025-03-12 20:15:59+00:00"
 	//	      }
