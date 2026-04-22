@@ -16,6 +16,7 @@ package servers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 
@@ -337,37 +338,41 @@ func validateImmutableFields(newVN *privatev1.VirtualNetwork, existingVN *privat
 func (s *PrivateVirtualNetworksServer) validateNetworkClassReference(ctx context.Context,
 	spec *privatev1.VirtualNetworkSpec) (implementationStrategy string, err error) {
 
-	networkClassID := spec.GetNetworkClass()
-	if networkClassID == "" {
+	networkClassRef := spec.GetNetworkClass()
+	if networkClassRef == "" {
 		err = grpcstatus.Errorf(grpccodes.InvalidArgument, "field 'spec.network_class' is required")
 		return
 	}
 
-	// Look up NetworkClass by ID
-	getResponse, err := s.networkClassDao.Get().
-		SetId(networkClassID).
+	// Look up NetworkClass by ID or implementation_strategy using a single List call.
+	// We avoid Get() here because a NotFound error from Get poisons the shared
+	// database transaction (via ReportError), causing subsequent writes to roll back.
+	listResponse, listErr := s.networkClassDao.List().
+		SetFilter(fmt.Sprintf(
+			"this.id == %[1]q || this.implementation_strategy == %[1]q",
+			networkClassRef,
+		)).
+		SetLimit(1).
 		Do(ctx)
-	if err != nil {
-		var notFoundErr *dao.ErrNotFound
-		if errors.As(err, &notFoundErr) {
-			err = grpcstatus.Errorf(grpccodes.InvalidArgument,
-				"network_class '%s' does not exist", networkClassID)
-			return
-		}
+	if listErr != nil {
 		s.logger.ErrorContext(ctx, "Failed to query NetworkClass",
-			slog.String("network_class", networkClassID),
-			slog.Any("error", err))
+			slog.String("network_class", networkClassRef),
+			slog.Any("error", listErr))
 		err = grpcstatus.Errorf(grpccodes.Internal, "failed to validate network_class")
 		return
 	}
-
-	networkClass := getResponse.GetObject()
+	if len(listResponse.GetItems()) == 0 {
+		err = grpcstatus.Errorf(grpccodes.InvalidArgument,
+			"network_class '%s' does not exist", networkClassRef)
+		return
+	}
+	networkClass := listResponse.GetItems()[0]
 
 	// VN-VAL-05: Check NetworkClass is READY
 	if networkClass.GetStatus().GetState() != privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY {
 		err = grpcstatus.Errorf(grpccodes.FailedPrecondition,
 			"network_class '%s' is not in READY state (current state: %s)",
-			networkClassID, networkClass.GetStatus().GetState().String())
+			networkClassRef, networkClass.GetStatus().GetState().String())
 		return
 	}
 
@@ -377,17 +382,17 @@ func (s *PrivateVirtualNetworksServer) validateNetworkClassReference(ctx context
 	if vnCaps != nil && ncCaps != nil {
 		if vnCaps.GetEnableIpv4() && !ncCaps.GetSupportsIpv4() {
 			err = grpcstatus.Errorf(grpccodes.InvalidArgument,
-				"network_class '%s' does not support IPv4", networkClassID)
+				"network_class '%s' does not support IPv4", networkClassRef)
 			return
 		}
 		if vnCaps.GetEnableIpv6() && !ncCaps.GetSupportsIpv6() {
 			err = grpcstatus.Errorf(grpccodes.InvalidArgument,
-				"network_class '%s' does not support IPv6", networkClassID)
+				"network_class '%s' does not support IPv6", networkClassRef)
 			return
 		}
 		if vnCaps.GetEnableDualStack() && !ncCaps.GetSupportsDualStack() {
 			err = grpcstatus.Errorf(grpccodes.InvalidArgument,
-				"network_class '%s' does not support dual-stack", networkClassID)
+				"network_class '%s' does not support dual-stack", networkClassRef)
 			return
 		}
 	}
