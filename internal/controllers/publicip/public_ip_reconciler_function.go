@@ -45,11 +45,11 @@ type FunctionBuilder struct {
 }
 
 type function struct {
-	logger             *slog.Logger
-	hubCache           controllers.HubCache
-	publicIPsClient    privatev1.PublicIPsClient
+	logger              *slog.Logger
+	hubCache            controllers.HubCache
+	publicIPsClient     privatev1.PublicIPsClient
 	publicIPPoolsClient privatev1.PublicIPPoolsClient
-	maskCalculator     *masks.Calculator
+	maskCalculator      *masks.Calculator
 }
 
 type task struct {

@@ -640,7 +640,7 @@ var _ = Describe("selectHub", func() {
 		poolsClient := &fakePublicIPPoolsClient{
 			getResponse: privatev1.PublicIPPoolsGetResponse_builder{
 				Object: privatev1.PublicIPPool_builder{
-					Id: "pool-no-hub",
+					Id:     "pool-no-hub",
 					Status: privatev1.PublicIPPoolStatus_builder{
 						// Hub is empty: pool not yet reconciled
 					}.Build(),
