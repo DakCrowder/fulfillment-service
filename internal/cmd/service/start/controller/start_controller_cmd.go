@@ -39,6 +39,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/cluster"
 	"github.com/osac-project/fulfillment-service/internal/controllers/computeinstance"
+	"github.com/osac-project/fulfillment-service/internal/controllers/publicippool"
 	"github.com/osac-project/fulfillment-service/internal/controllers/securitygroup"
 	"github.com/osac-project/fulfillment-service/internal/controllers/subnet"
 	"github.com/osac-project/fulfillment-service/internal/controllers/virtualnetwork"
@@ -404,6 +405,43 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 			r.logger.InfoContext(
 				ctx,
 				"Security group reconciler failed",
+				slog.Any("error", err),
+			)
+		}
+	}()
+
+	// Create the public IP pool reconciler:
+	r.logger.InfoContext(ctx, "Creating public IP pool reconciler")
+	publicIPPoolReconcilerFunction, err := publicippool.NewFunction().
+		SetLogger(r.logger).
+		SetConnection(r.client).
+		SetHubCache(hubCache).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create public IP pool reconciler function: %w", err)
+	}
+	publicIPPoolReconciler, err := controllers.NewReconciler[*privatev1.PublicIPPool]().
+		SetLogger(r.logger).
+		SetName("public_ip_pool").
+		SetClient(r.client).
+		SetFunction(publicIPPoolReconcilerFunction).
+		SetEventFilter("has(event.public_ip_pool) || (has(event.hub) && event.type == EVENT_TYPE_OBJECT_CREATED)").
+		SetHealthReporter(healthAggregator).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create public IP pool reconciler: %w", err)
+	}
+
+	// Start the public IP pool reconciler:
+	r.logger.InfoContext(ctx, "Starting public IP pool reconciler")
+	go func() {
+		err := publicIPPoolReconciler.Start(ctx)
+		if err == nil || errors.Is(err, context.Canceled) {
+			r.logger.InfoContext(ctx, "Public IP pool reconciler finished")
+		} else {
+			r.logger.InfoContext(
+				ctx,
+				"Public IP pool reconciler failed",
 				slog.Any("error", err),
 			)
 		}

@@ -23,6 +23,7 @@ import "osac/private/v1/host_type_type.proto";
 import "osac/private/v1/hub_type.proto";
 import "osac/private/v1/lease_type.proto";
 import "osac/private/v1/network_class_type.proto";
+import "osac/private/v1/public_ip_pool_type.proto";
 import "osac/private/v1/security_group_type.proto";
 import "osac/private/v1/subnet_type.proto";
 import "osac/private/v1/virtual_network_type.proto";
@@ -48,6 +49,7 @@ message Event {
     VirtualNetwork virtual_network = 13;
     SecurityGroup security_group = 14;
     Lease lease = 15;
+    PublicIPPool public_ip_pool = 16;
   }
 }
 

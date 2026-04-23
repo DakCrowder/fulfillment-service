@@ -68,6 +68,14 @@ var NetworkClass = schema.GroupVersionKind{
 
 var NetworkClassList = listGVK(NetworkClass)
 
+var PublicIPPool = schema.GroupVersionKind{
+	Group:   "osac.openshift.io",
+	Version: "v1alpha1",
+	Kind:    "PublicIPPool",
+}
+
+var PublicIPPoolList = listGVK(PublicIPPool)
+
 var SecurityGroup = schema.GroupVersionKind{
 	Group:   "osac.openshift.io",
 	Version: "v1alpha1",

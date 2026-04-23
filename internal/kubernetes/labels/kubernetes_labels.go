@@ -34,5 +34,8 @@ var VirtualNetworkUuid = fmt.Sprintf("%s/%s", gvks.VirtualNetwork.Group, "virtua
 // NetworkClassUuid is the label where the fulfillment API will write the identifier of the network class.
 var NetworkClassUuid = fmt.Sprintf("%s/%s", gvks.NetworkClass.Group, "networkclass-uuid")
 
+// PublicIPPoolUuid is the label where the fulfillment API will write the identifier of the public IP pool.
+var PublicIPPoolUuid = fmt.Sprintf("%s/%s", gvks.PublicIPPool.Group, "publicippool-uuid")
+
 // SecurityGroupUuid is the label where the fulfillment API will write the identifier of the security group.
 var SecurityGroupUuid = fmt.Sprintf("%s/%s", gvks.SecurityGroup.Group, "securitygroup-uuid")
