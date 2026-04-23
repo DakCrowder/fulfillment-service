@@ -16,6 +16,8 @@ package console
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -96,6 +98,84 @@ var _ = Describe("KubeVirt Backend", func() {
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to connect"))
+		})
+	})
+
+	Describe("authHeadersFromConfig", func() {
+		It("should return Authorization header for BearerToken", func() {
+			config := &rest.Config{
+				Host:        "https://localhost:6443",
+				BearerToken: "my-test-token",
+			}
+			headers, err := authHeadersFromConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(headers.Get("Authorization")).To(Equal("Bearer my-test-token"))
+		})
+
+		It("should return Authorization header for BearerTokenFile", func() {
+			tokenDir := GinkgoT().TempDir()
+			tokenFile := filepath.Join(tokenDir, "token")
+			err := os.WriteFile(tokenFile, []byte("file-based-token"), 0600)
+			Expect(err).NotTo(HaveOccurred())
+
+			config := &rest.Config{
+				Host:            "https://localhost:6443",
+				BearerTokenFile: tokenFile,
+			}
+			headers, err := authHeadersFromConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(headers.Get("Authorization")).To(Equal("Bearer file-based-token"))
+		})
+
+		It("should read updated token from BearerTokenFile", func() {
+			tokenDir := GinkgoT().TempDir()
+			tokenFile := filepath.Join(tokenDir, "token")
+			err := os.WriteFile(tokenFile, []byte("initial-token"), 0600)
+			Expect(err).NotTo(HaveOccurred())
+
+			config := &rest.Config{
+				Host:            "https://localhost:6443",
+				BearerTokenFile: tokenFile,
+			}
+
+			headers, err := authHeadersFromConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(headers.Get("Authorization")).To(Equal("Bearer initial-token"))
+
+			// Update the token file and verify the new token is read.
+			err = os.WriteFile(tokenFile, []byte("rotated-token"), 0600)
+			Expect(err).NotTo(HaveOccurred())
+
+			headers, err = authHeadersFromConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(headers.Get("Authorization")).To(Equal("Bearer rotated-token"))
+		})
+
+		It("should return no Authorization header when no auth is configured", func() {
+			config := &rest.Config{
+				Host: "https://localhost:6443",
+			}
+			headers, err := authHeadersFromConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(headers.Get("Authorization")).To(BeEmpty())
+		})
+
+		It("should prefer BearerTokenFile over BearerToken when both are set", func() {
+			tokenDir := GinkgoT().TempDir()
+			tokenFile := filepath.Join(tokenDir, "token")
+			err := os.WriteFile(tokenFile, []byte("file-token"), 0600)
+			Expect(err).NotTo(HaveOccurred())
+
+			config := &rest.Config{
+				Host:            "https://localhost:6443",
+				BearerToken:     "inline-token",
+				BearerTokenFile: tokenFile,
+			}
+			headers, err := authHeadersFromConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			// client-go treats BearerTokenFile as a refreshable source that
+			// takes precedence over the static BearerToken.
+			Expect(headers.Get("Authorization")).To(Equal("Bearer file-token"))
 		})
 	})
 

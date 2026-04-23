@@ -15,6 +15,8 @@ package console
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -218,5 +220,86 @@ var _ = Describe("KubeVirt Backend Integration", func() {
 		conn2, err := mgr.Connect(ctx, target, "user2")
 		Expect(err).NotTo(HaveOccurred())
 		conn2.Close()
+	})
+
+	It("should send BearerToken in Authorization header to the server", func() {
+		receivedAuth := make(chan string, 1)
+		authServer, err := newMockWSServerWithHandler(func(ws *websocket.Conn) {
+			receivedAuth <- ws.Request().Header.Get("Authorization")
+			ws.PayloadType = websocket.BinaryFrame
+			ws.Write([]byte("authenticated\r\n"))
+			ws.Close()
+		})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(authServer.Close)
+
+		backend, err := NewKubeVirtBackend().
+			SetLogger(logger).
+			SetHubConfigProvider(func(ctx context.Context, hubID string) (*rest.Config, error) {
+				return &rest.Config{
+					Host:        "ws://" + authServer.Addr(),
+					BearerToken: "test-token-123",
+				}, nil
+			}).
+			Build()
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		conn, err := backend.Connect(ctx, Target{
+			HubID: "hub-1", Namespace: "test-ns", VMName: "test-vm",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		defer conn.Close()
+
+		buf := make([]byte, 4096)
+		n, err := conn.Read(buf)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(buf[:n])).To(Equal("authenticated\r\n"))
+		Expect(receivedAuth).To(Receive(Equal("Bearer test-token-123")))
+	})
+
+	It("should send BearerTokenFile in Authorization header to the server", func() {
+		tokenDir := GinkgoT().TempDir()
+		tokenFile := filepath.Join(tokenDir, "token")
+		err := os.WriteFile(tokenFile, []byte("file-token-456"), 0600)
+		Expect(err).NotTo(HaveOccurred())
+
+		receivedAuth := make(chan string, 1)
+		authServer, err := newMockWSServerWithHandler(func(ws *websocket.Conn) {
+			receivedAuth <- ws.Request().Header.Get("Authorization")
+			ws.PayloadType = websocket.BinaryFrame
+			ws.Write([]byte("ok\r\n"))
+			ws.Close()
+		})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(authServer.Close)
+
+		backend, err := NewKubeVirtBackend().
+			SetLogger(logger).
+			SetHubConfigProvider(func(ctx context.Context, hubID string) (*rest.Config, error) {
+				return &rest.Config{
+					Host:            "ws://" + authServer.Addr(),
+					BearerTokenFile: tokenFile,
+				}, nil
+			}).
+			Build()
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		conn, err := backend.Connect(ctx, Target{
+			HubID: "hub-1", Namespace: "test-ns", VMName: "test-vm",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		defer conn.Close()
+
+		buf := make([]byte, 4096)
+		n, err := conn.Read(buf)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(buf[:n])).To(Equal("ok\r\n"))
+		Expect(receivedAuth).To(Receive(Equal("Bearer file-token-456")))
 	})
 })
