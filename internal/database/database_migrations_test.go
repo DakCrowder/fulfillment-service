@@ -14,7 +14,12 @@ language governing permissions and limitations under the License.
 package database
 
 import (
+	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
@@ -28,5 +33,94 @@ var _ = Describe("Migrations", func() {
 		for _, file := range files {
 			Expect(file).To(MatchRegexp(`\.(up|down)\.sql$`))
 		}
+	})
+
+	It("Has no duplicate migration numbers", func() {
+		files, err := filepath.Glob("migrations/*.sql")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(files).ToNot(BeEmpty())
+
+		seen := map[string][]string{}
+		for _, file := range files {
+			base := filepath.Base(file)
+			parts := strings.SplitN(base, "_", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			n, err := strconv.Atoi(parts[0])
+			Expect(err).ToNot(HaveOccurred(), "failed to parse migration number from %s", base)
+			var direction string
+			switch {
+			case strings.HasSuffix(base, ".up.sql"):
+				direction = "up"
+			case strings.HasSuffix(base, ".down.sql"):
+				direction = "down"
+			default:
+				continue
+			}
+			key := fmt.Sprintf("%d_%s", n, direction)
+			seen[key] = append(seen[key], base)
+		}
+
+		var duplicates []string
+		keys := make([]string, 0, len(seen))
+		for k := range seen {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if len(seen[key]) > 1 {
+				duplicates = append(duplicates, fmt.Sprintf("%s: %v", key, seen[key]))
+			}
+		}
+		Expect(duplicates).To(BeEmpty(), "found duplicate migration numbers: %v", duplicates)
+	})
+
+	It("Has migration filenames that follow naming convention", func() {
+		files, err := filepath.Glob("migrations/*.sql")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(files).ToNot(BeEmpty())
+
+		pattern := regexp.MustCompile(`^(\d+)_[a-z][a-z0-9_]*[a-z0-9]\.(up|down)\.sql$`)
+		var violations []string
+		for _, file := range files {
+			base := filepath.Base(file)
+			if !pattern.MatchString(base) {
+				violations = append(violations, base)
+			}
+		}
+		Expect(violations).To(BeEmpty(), "migration filenames violate naming convention: %v", violations)
+	})
+
+	It("Has no unexpected gaps in migration numbering", func() {
+		files, err := filepath.Glob("migrations/*.up.sql")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(files).ToNot(BeEmpty())
+
+		knownGaps := map[int]bool{18: true}
+
+		present := map[int]bool{}
+		maxNum := 0
+		for _, file := range files {
+			base := filepath.Base(file)
+			parts := strings.SplitN(base, "_", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			n, err := strconv.Atoi(parts[0])
+			Expect(err).ToNot(HaveOccurred(), "failed to parse migration number from %s", base)
+			present[n] = true
+			if n > maxNum {
+				maxNum = n
+			}
+		}
+
+		var gaps []int
+		for i := 0; i <= maxNum; i++ {
+			if !present[i] && !knownGaps[i] {
+				gaps = append(gaps, i)
+			}
+		}
+		Expect(gaps).To(BeEmpty(), "unexpected gaps in migration numbering: %v", gaps)
 	})
 })
