@@ -26,15 +26,18 @@ message Organization {
   Metadata metadata = 2;
 
   OrganizationSpec spec = 3;
+  OrganizationStatus status = 4;
 }
 
 message OrganizationSpec {
   // Human friendly description of the organization, using Markdown format.
   string description = 1;
+}
 
+message OrganizationStatus {
   // Break-glass account credentials.
   // Only populated on successful creation. These credentials must be stored securely.
   // The break-glass account provides emergency access to the organization's IdP realm.
   // This field is not persisted and will be empty when reading existing organizations.
-  optional BreakGlassCredentials break_glass_credentials = 4;
+  BreakGlassCredentials break_glass_credentials = 1;
 }

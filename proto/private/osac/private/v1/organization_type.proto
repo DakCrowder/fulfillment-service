@@ -23,11 +23,6 @@ message Organization {
   Metadata metadata = 2;
   OrganizationSpec spec = 3;
   OrganizationStatus status = 4;
-
-  // Break-glass account credentials.
-  // Only populated on successful creation. These credentials must be stored securely.
-  // This field is not persisted and will be empty when reading existing organizations.
-  optional BreakGlassCredentials break_glass_credentials = 5;
 }
 
 message OrganizationSpec {
@@ -40,8 +35,13 @@ message OrganizationSpec {
 // Status is system-provided and read-only. Users cannot modify status fields directly; the system updates them
 // based on the reconciliation with the identity provider.
 message OrganizationStatus {
+  // Break-glass account credentials.
+  // Only populated on successful creation. These credentials must be stored securely.
+  // This field is not persisted and will be empty when reading existing organizations.
+  BreakGlassCredentials break_glass_credentials = 1;
+
   // Current lifecycle state of the organization's IDP synchronization.
-  OrganizationState state = 1;
+  OrganizationState state = 2;
 
   // Human-readable message providing additional details about the current state.
   //
@@ -52,7 +52,7 @@ message OrganizationStatus {
   // "Organization name already exists in IDP", or "Invalid organization name format".
   //
   // For SYNCED state, this is typically empty or contains confirmation like "Organization synced to IDP".
-  optional string message = 2;
+  optional string message = 3;
 
   // Name of the organization created in the identity provider.
   // Different providers use different terminology (Keycloak: realm, Auth0: tenant, Okta: organization),
@@ -60,14 +60,14 @@ message OrganizationStatus {
   // Typically matches the organization name but stored here for reference.
   // This is set by the controller after successful IDP sync.
   // Empty string when state is PENDING or FAILED.
-  string idp_organization_name = 3;
+  string idp_organization_name = 4;
 
   // User ID of the break-glass account created in the identity provider.
   // This account has limited administrative permissions for managing users and identity providers.
   // The break-glass password is NOT stored here for security reasons - it is only returned once
   // during organization creation.
   // Empty string when state is PENDING or FAILED.
-  string break_glass_user_id = 4;
+  string break_glass_user_id = 5;
 }
 
 // Lifecycle states for Organization resources.
