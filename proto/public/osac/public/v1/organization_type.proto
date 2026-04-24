@@ -28,6 +28,5 @@ message Organization {
 }
 
 message OrganizationSpec {
-  // Human friendly description of the organization, using Markdown format.
-  string description = 1;
+  // Reserved for future organization configuration fields.
 }

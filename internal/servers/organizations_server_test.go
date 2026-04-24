@@ -113,9 +113,6 @@ var _ = Describe("Organizations Server (Public)", func() {
 					Metadata: &publicv1.Metadata{
 						Name: "test-org",
 					},
-					Spec: &publicv1.OrganizationSpec{
-						Description: "Test Organization",
-					},
 				},
 			}
 
@@ -176,9 +173,6 @@ var _ = Describe("Organizations Server (Public)", func() {
 					Metadata: &publicv1.Metadata{
 						Name: "test-org",
 					},
-					Spec: &publicv1.OrganizationSpec{
-						Description: "Original description",
-					},
 				},
 			}
 			createResp, err := publicServer.Create(ctx, createReq)
@@ -188,14 +182,14 @@ var _ = Describe("Organizations Server (Public)", func() {
 			updateReq := &publicv1.OrganizationsUpdateRequest{
 				Object: &publicv1.Organization{
 					Id: createResp.Object.Id,
-					Spec: &publicv1.OrganizationSpec{
-						Description: "Updated description",
+					Metadata: &publicv1.Metadata{
+						Name: "updated-org",
 					},
 				},
 			}
 			updateResp, err := publicServer.Update(ctx, updateReq)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updateResp.Object.Spec.Description).To(Equal("Updated description"))
+			Expect(updateResp.Object.Metadata.Name).To(Equal("updated-org"))
 		})
 
 		It("Deletes an organization", func() {
@@ -227,9 +221,6 @@ var _ = Describe("Organizations Server (Public)", func() {
 							"env": "test",
 						},
 					},
-					Spec: &publicv1.OrganizationSpec{
-						Description: "Test mapping",
-					},
 				},
 			}
 			createResp, err := publicServer.Create(ctx, createReq)
@@ -237,7 +228,6 @@ var _ = Describe("Organizations Server (Public)", func() {
 
 			// Verify response has public type:
 			Expect(createResp.Object).To(BeAssignableToTypeOf(&publicv1.Organization{}))
-			Expect(createResp.Object.Spec.Description).To(Equal("Test mapping"))
 			Expect(createResp.Object.Metadata.Labels).To(HaveKeyWithValue("env", "test"))
 
 			// Get and verify mapping:
@@ -246,7 +236,7 @@ var _ = Describe("Organizations Server (Public)", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(getResp.Object).To(BeAssignableToTypeOf(&publicv1.Organization{}))
-			Expect(getResp.Object.Spec.Description).To(Equal("Test mapping"))
+			Expect(getResp.Object.Metadata.Name).To(Equal("test-org"))
 		})
 	})
 })
