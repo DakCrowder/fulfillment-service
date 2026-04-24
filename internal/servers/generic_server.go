@@ -838,10 +838,10 @@ func (s *GenericServer[O]) setPayload(event *privatev1.Event, object proto.Messa
 		event.SetSecurityGroup(object)
 	case *privatev1.Lease:
 		event.SetLease(object)
-	case *privatev1.PublicIP:
-		event.SetPublicIp(object)
 	case *privatev1.PublicIPPool:
 		event.SetPublicIpPool(object)
+	case *privatev1.PublicIP:
+		event.SetPublicIp(object)
 	default:
 		return fmt.Errorf("unknown object type '%T'", object)
 	}

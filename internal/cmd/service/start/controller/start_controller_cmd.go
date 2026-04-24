@@ -39,6 +39,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/cluster"
 	"github.com/osac-project/fulfillment-service/internal/controllers/computeinstance"
+	"github.com/osac-project/fulfillment-service/internal/controllers/publicip"
 	"github.com/osac-project/fulfillment-service/internal/controllers/publicippool"
 	"github.com/osac-project/fulfillment-service/internal/controllers/securitygroup"
 	"github.com/osac-project/fulfillment-service/internal/controllers/subnet"
@@ -442,6 +443,43 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 			r.logger.InfoContext(
 				ctx,
 				"Public IP pool reconciler failed",
+				slog.Any("error", err),
+			)
+		}
+	}()
+
+	// Create the public IP reconciler:
+	r.logger.InfoContext(ctx, "Creating public IP reconciler")
+	publicIPReconcilerFunction, err := publicip.NewFunction().
+		SetLogger(r.logger).
+		SetConnection(r.client).
+		SetHubCache(hubCache).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create public IP reconciler function: %w", err)
+	}
+	publicIPReconciler, err := controllers.NewReconciler[*privatev1.PublicIP]().
+		SetLogger(r.logger).
+		SetName("public_ip").
+		SetClient(r.client).
+		SetFunction(publicIPReconcilerFunction).
+		SetEventFilter("has(event.public_ip) || (has(event.hub) && event.type == EVENT_TYPE_OBJECT_CREATED)").
+		SetHealthReporter(healthAggregator).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create public IP reconciler: %w", err)
+	}
+
+	// Start the public IP reconciler:
+	r.logger.InfoContext(ctx, "Starting public IP reconciler")
+	go func() {
+		err := publicIPReconciler.Start(ctx)
+		if err == nil || errors.Is(err, context.Canceled) {
+			r.logger.InfoContext(ctx, "Public IP reconciler finished")
+		} else {
+			r.logger.InfoContext(
+				ctx,
+				"Public IP reconciler failed",
 				slog.Any("error", err),
 			)
 		}

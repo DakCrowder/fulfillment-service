@@ -694,20 +694,6 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 	}
 	publicv1.RegisterPublicIPsServer(grpcServer, publicIPsServer)
 
-	// Create the private public IPs server:
-	c.logger.InfoContext(ctx, "Creating private public IPs server")
-	privatePublicIPsServer, err := servers.NewPrivatePublicIPsServer().
-		SetLogger(c.logger).
-		SetNotifier(notifier).
-		SetAttributionLogic(privateAttributionLogic).
-		SetTenancyLogic(tenancyLogic).
-		SetMetricsRegisterer(metricsRegisterer).
-		Build()
-	if err != nil {
-		return fmt.Errorf("failed to create private public IPs server: %w", err)
-	}
-	privatev1.RegisterPublicIPsServer(grpcServer, privatePublicIPsServer)
-
 	// Create the private public IP pools server:
 	c.logger.InfoContext(ctx, "Creating private public IP pools server")
 	privatePublicIPPoolsServer, err := servers.NewPrivatePublicIPPoolsServer().
@@ -721,6 +707,20 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		return fmt.Errorf("failed to create private public IP pools server: %w", err)
 	}
 	privatev1.RegisterPublicIPPoolsServer(grpcServer, privatePublicIPPoolsServer)
+
+	// Create the private public IPs server:
+	c.logger.InfoContext(ctx, "Creating private public IPs server")
+	privatePublicIPsServer, err := servers.NewPrivatePublicIPsServer().
+		SetLogger(c.logger).
+		SetNotifier(notifier).
+		SetAttributionLogic(privateAttributionLogic).
+		SetTenancyLogic(tenancyLogic).
+		SetMetricsRegisterer(metricsRegisterer).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create private public IPs server: %w", err)
+	}
+	privatev1.RegisterPublicIPsServer(grpcServer, privatePublicIPsServer)
 
 	// Create the console manager and server:
 	c.logger.InfoContext(ctx, "Creating console server")

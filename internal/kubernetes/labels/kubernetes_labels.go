@@ -39,3 +39,6 @@ var PublicIPPoolUuid = fmt.Sprintf("%s/%s", gvks.PublicIPPool.Group, "publicippo
 
 // SecurityGroupUuid is the label where the fulfillment API will write the identifier of the security group.
 var SecurityGroupUuid = fmt.Sprintf("%s/%s", gvks.SecurityGroup.Group, "securitygroup-uuid")
+
+// PublicIPUuid is the label where the fulfillment API will write the identifier of the public IP.
+var PublicIPUuid = fmt.Sprintf("%s/%s", gvks.PublicIP.Group, "publicip-uuid")
