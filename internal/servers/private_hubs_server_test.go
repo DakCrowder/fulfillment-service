@@ -23,6 +23,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
+	"github.com/osac-project/fulfillment-service/internal/auth"
+	"github.com/osac-project/fulfillment-service/internal/collections"
 	"github.com/osac-project/fulfillment-service/internal/database"
 	"github.com/osac-project/fulfillment-service/internal/database/dao"
 )
@@ -38,6 +40,13 @@ var _ = Describe("Private hubs server", func() {
 
 		// Create a context:
 		ctx = context.Background()
+		ctx = auth.ContextWithSubject(
+			ctx,
+			&auth.Subject{
+				User:    "system",
+				Tenants: collections.NewUniversalSet[string](),
+			},
+		)
 
 		// Prepare the database pool:
 		db := server.MakeDatabase()

@@ -22,11 +22,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
+	"github.com/osac-project/fulfillment-service/internal/collections"
 	"github.com/osac-project/fulfillment-service/internal/database"
 	"github.com/osac-project/fulfillment-service/internal/database/dao"
 	"github.com/osac-project/fulfillment-service/internal/servers"
@@ -35,6 +37,7 @@ import (
 var _ = Describe("Leader elector", func() {
 	var (
 		ctx    context.Context
+		ctrl   *gomock.Controller
 		client *grpc.ClientConn
 	)
 
@@ -45,6 +48,10 @@ var _ = Describe("Leader elector", func() {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(context.Background())
 		DeferCleanup(cancel)
+
+		// Create the mock controller:
+		ctrl = gomock.NewController(GinkgoT())
+		DeferCleanup(ctrl.Finish)
 
 		// Create a database:
 		db := dbServer.MakeDatabase()
@@ -70,22 +77,20 @@ var _ = Describe("Leader elector", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create the attribution and tenancy logic:
-		attribution, err := auth.NewSystemAttributionLogic().
-			SetLogger(logger).
-			Build()
-		Expect(err).ToNot(HaveOccurred())
-
-		tenancy, err := auth.NewSystemTenancyLogic().
-			SetLogger(logger).
-			Build()
-		Expect(err).ToNot(HaveOccurred())
-
-		// Create the tx interceptor:
-		txInterceptor, err := database.NewTxInterceptor().
-			SetLogger(logger).
-			SetManager(txManager).
-			Build()
-		Expect(err).ToNot(HaveOccurred())
+		attribution := auth.NewMockAttributionLogic(ctrl)
+		attribution.EXPECT().DetermineAssignedCreators(gomock.Any()).
+			Return(collections.NewSet("system"), nil).
+			AnyTimes()
+		tenancy := auth.NewMockTenancyLogic(ctrl)
+		tenancy.EXPECT().DetermineAssignableTenants(gomock.Any()).
+			Return(collections.NewSet("system"), nil).
+			AnyTimes()
+		tenancy.EXPECT().DetermineDefaultTenants(gomock.Any()).
+			Return(collections.NewSet("system"), nil).
+			AnyTimes()
+		tenancy.EXPECT().DetermineVisibleTenants(gomock.Any()).
+			Return(collections.NewSet("system"), nil).
+			AnyTimes()
 
 		// Create the leases server:
 		leasesServer, err := servers.NewPrivateLeasesServer().
@@ -95,7 +100,12 @@ var _ = Describe("Leader elector", func() {
 			Build()
 		Expect(err).ToNot(HaveOccurred())
 
-		// Create and start the gRPC server with the tx interceptor:
+		// Create and start the gRPC server:
+		txInterceptor, err := database.NewTxInterceptor().
+			SetLogger(logger).
+			SetManager(txManager).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
 		grpcServer := grpc.NewServer(
 			grpc.ChainUnaryInterceptor(txInterceptor.UnaryServer),
 		)

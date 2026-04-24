@@ -19,6 +19,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 
 	"github.com/osac-project/fulfillment-service/internal/auth"
 	"github.com/osac-project/fulfillment-service/internal/collections"
@@ -32,15 +33,20 @@ func TestServers(t *testing.T) {
 }
 
 var (
+	ctrl        *gomock.Controller
 	logger      *slog.Logger
 	server      *DatabaseServer
-	attribution auth.AttributionLogic
-	tenancy     auth.TenancyLogic
+	attribution *auth.MockAttributionLogic
+	tenancy     *auth.MockTenancyLogic
 	visibility  collections.Set[string]
 )
 
 var _ = BeforeSuite(func() {
 	var err error
+
+	// Create the mock controller:
+	ctrl = gomock.NewController(GinkgoT())
+	DeferCleanup(ctrl.Finish)
 
 	// Create the logger:
 	logger, err = logging.NewLogger().
@@ -50,16 +56,22 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// Create the attribution logic:
-	attribution, err = auth.NewSystemAttributionLogic().
-		SetLogger(logger).
-		Build()
-	Expect(err).ToNot(HaveOccurred())
+	attribution = auth.NewMockAttributionLogic(ctrl)
+	attribution.EXPECT().DetermineAssignedCreators(gomock.Any()).
+		Return(collections.NewSet("system"), nil).
+		AnyTimes()
 
 	// Create the tenancy logic:
-	tenancy, err = auth.NewSystemTenancyLogic().
-		SetLogger(logger).
-		Build()
-	Expect(err).ToNot(HaveOccurred())
+	tenancy = auth.NewMockTenancyLogic(ctrl)
+	tenancy.EXPECT().DetermineAssignableTenants(gomock.Any()).
+		Return(collections.NewUniversalSet[string](), nil).
+		AnyTimes()
+	tenancy.EXPECT().DetermineDefaultTenants(gomock.Any()).
+		Return(collections.NewSet("system"), nil).
+		AnyTimes()
+	tenancy.EXPECT().DetermineVisibleTenants(gomock.Any()).
+		Return(collections.NewUniversalSet[string](), nil).
+		AnyTimes()
 
 	// Create the set of visible tenants:
 	visibility = collections.NewUniversalSet[string]()
