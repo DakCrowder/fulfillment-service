@@ -36,8 +36,7 @@ import (
 )
 
 const (
-	objectPrefix                     = "publicippool-"
-	implementationStrategyAnnotation = "osac.openshift.io/implementation-strategy"
+	objectPrefix = "publicippool-"
 )
 
 var (
@@ -182,14 +181,9 @@ func (t *task) update(ctx context.Context) error {
 		object.SetLabels(map[string]string{
 			labels.PublicIPPoolUuid: t.publicIPPool.GetId(),
 		})
-		poolAnnotations := map[string]string{
+		object.SetAnnotations(map[string]string{
 			annotations.Tenant: t.publicIPPool.GetMetadata().GetTenants()[0],
-		}
-		implStrategy := t.publicIPPool.GetSpec().GetImplementationStrategy()
-		if implStrategy != "" {
-			poolAnnotations[implementationStrategyAnnotation] = implStrategy
-		}
-		object.SetAnnotations(poolAnnotations)
+		})
 		err = unstructured.SetNestedField(object.Object, spec, "spec")
 		if err != nil {
 			return err
@@ -396,16 +390,18 @@ func (t *task) buildSpec() map[string]any {
 	for i, c := range cidrs {
 		cidrList[i] = c
 	}
+	spec["cidrs"] = cidrList
 
 	switch t.publicIPPool.GetSpec().GetIpFamily() {
 	case privatev1.IPFamily_IP_FAMILY_IPV4:
-		spec["ipv4"] = map[string]any{
-			"cidrs": cidrList,
-		}
+		spec["ipFamily"] = "IPv4"
 	case privatev1.IPFamily_IP_FAMILY_IPV6:
-		spec["ipv6"] = map[string]any{
-			"cidrs": cidrList,
-		}
+		spec["ipFamily"] = "IPv6"
+	}
+
+	implStrategy := t.publicIPPool.GetSpec().GetImplementationStrategy()
+	if implStrategy != "" {
+		spec["implementationStrategy"] = implStrategy
 	}
 
 	return spec

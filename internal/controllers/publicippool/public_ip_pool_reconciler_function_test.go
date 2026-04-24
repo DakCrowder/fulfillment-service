@@ -38,7 +38,7 @@ import (
 )
 
 var _ = Describe("buildSpec", func() {
-	It("Maps IPv4 family to spec.ipv4.cidrs", func() {
+	It("Maps IPv4 family to flat spec fields", func() {
 		t := &task{
 			publicIPPool: privatev1.PublicIPPool_builder{
 				Id: "pool-ipv4",
@@ -51,13 +51,13 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec).To(HaveKey("ipv4"))
+		Expect(spec).ToNot(HaveKey("ipv4"))
 		Expect(spec).ToNot(HaveKey("ipv6"))
-		ipv4 := spec["ipv4"].(map[string]any)
-		Expect(ipv4["cidrs"]).To(Equal([]any{"203.0.113.0/24", "198.51.100.0/24"}))
+		Expect(spec["cidrs"]).To(Equal([]any{"203.0.113.0/24", "198.51.100.0/24"}))
+		Expect(spec["ipFamily"]).To(Equal("IPv4"))
 	})
 
-	It("Maps IPv6 family to spec.ipv6.cidrs", func() {
+	It("Maps IPv6 family to flat spec fields", func() {
 		t := &task{
 			publicIPPool: privatev1.PublicIPPool_builder{
 				Id: "pool-ipv6",
@@ -70,10 +70,43 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec).To(HaveKey("ipv6"))
 		Expect(spec).ToNot(HaveKey("ipv4"))
-		ipv6 := spec["ipv6"].(map[string]any)
-		Expect(ipv6["cidrs"]).To(Equal([]any{"2001:db8::/32"}))
+		Expect(spec).ToNot(HaveKey("ipv6"))
+		Expect(spec["cidrs"]).To(Equal([]any{"2001:db8::/32"}))
+		Expect(spec["ipFamily"]).To(Equal("IPv6"))
+	})
+
+	It("Includes implementationStrategy when set", func() {
+		t := &task{
+			publicIPPool: privatev1.PublicIPPool_builder{
+				Id: "pool-impl-strategy",
+				Spec: privatev1.PublicIPPoolSpec_builder{
+					Cidrs:                  []string{"203.0.113.0/24"},
+					IpFamily:               privatev1.IPFamily_IP_FAMILY_IPV4,
+					ImplementationStrategy: "metallb-l2",
+				}.Build(),
+			}.Build(),
+		}
+
+		spec := t.buildSpec()
+
+		Expect(spec["implementationStrategy"]).To(Equal("metallb-l2"))
+	})
+
+	It("Omits implementationStrategy when empty", func() {
+		t := &task{
+			publicIPPool: privatev1.PublicIPPool_builder{
+				Id: "pool-no-impl-strategy",
+				Spec: privatev1.PublicIPPoolSpec_builder{
+					Cidrs:    []string{"203.0.113.0/24"},
+					IpFamily: privatev1.IPFamily_IP_FAMILY_IPV4,
+				}.Build(),
+			}.Build(),
+		}
+
+		spec := t.buildSpec()
+
+		Expect(spec).ToNot(HaveKey("implementationStrategy"))
 	})
 
 })
@@ -709,66 +742,8 @@ var _ = Describe("update", func() {
 		spec, found, err := unstructured.NestedMap(createdObj.Object, "spec")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(found).To(BeTrue())
-		Expect(spec).To(HaveKey("ipv4"))
-	})
-
-	It("should include implementation strategy annotation when set", func() {
-		scheme := newSchemeWithPublicIPPoolList()
-		var createdObj *unstructured.Unstructured
-		fakeClient := fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithInterceptorFuncs(interceptor.Funcs{
-				Create: func(ctx context.Context, client clnt.WithWatch, obj clnt.Object, opts ...clnt.CreateOption) error {
-					createdObj = obj.(*unstructured.Unstructured)
-					return nil
-				},
-			}).
-			Build()
-
-		hubCache := controllers.NewMockHubCache(ctrl)
-		hubCache.EXPECT().
-			Get(gomock.Any(), hubID).
-			Return(&controllers.HubEntry{
-				Namespace: hubNamespace,
-				Client:    fakeClient,
-			}, nil)
-
-		t := newTaskForUpdate(poolID, hubID, hubCache)
-		t.publicIPPool.GetSpec().SetImplementationStrategy("metallb-l2")
-
-		err := t.update(ctx)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(createdObj.GetAnnotations()).To(
-			HaveKeyWithValue(implementationStrategyAnnotation, "metallb-l2"),
-		)
-	})
-
-	It("should not include implementation strategy annotation when empty", func() {
-		scheme := newSchemeWithPublicIPPoolList()
-		var createdObj *unstructured.Unstructured
-		fakeClient := fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithInterceptorFuncs(interceptor.Funcs{
-				Create: func(ctx context.Context, client clnt.WithWatch, obj clnt.Object, opts ...clnt.CreateOption) error {
-					createdObj = obj.(*unstructured.Unstructured)
-					return nil
-				},
-			}).
-			Build()
-
-		hubCache := controllers.NewMockHubCache(ctrl)
-		hubCache.EXPECT().
-			Get(gomock.Any(), hubID).
-			Return(&controllers.HubEntry{
-				Namespace: hubNamespace,
-				Client:    fakeClient,
-			}, nil)
-
-		t := newTaskForUpdate(poolID, hubID, hubCache)
-
-		err := t.update(ctx)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(createdObj.GetAnnotations()).ToNot(HaveKey(implementationStrategyAnnotation))
+		Expect(spec).To(HaveKey("cidrs"))
+		Expect(spec).To(HaveKey("ipFamily"))
 	})
 
 	It("should patch existing K8s object", func() {
