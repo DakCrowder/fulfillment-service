@@ -17,6 +17,8 @@ import (
 	"context"
 )
 
+//go:generate go run go.uber.org/mock/mockgen -destination=client_mock.go -package=idp . Client
+
 // Client is the generic interface for identity provider admin operations.
 // Different IdP providers (Keycloak, Auth0, Okta, etc.) implement this interface.
 type Client interface {
