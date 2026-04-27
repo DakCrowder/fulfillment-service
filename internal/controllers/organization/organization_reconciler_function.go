@@ -100,7 +100,12 @@ func (r *function) Run(ctx context.Context, organization *privatev1.Organization
 		organization: organization,
 	}
 
-	err := task.update(ctx)
+	var err error
+	if organization.HasMetadata() && organization.GetMetadata().HasDeletionTimestamp() {
+		err = task.delete(ctx)
+	} else {
+		err = task.update(ctx)
+	}
 	if err != nil {
 		return err
 	}
@@ -136,14 +141,20 @@ func (t *task) update(ctx context.Context) error {
 	}
 
 	state := t.organization.GetStatus().GetState()
-	if state == privatev1.OrganizationState_ORGANIZATION_STATE_SYNCED {
-		return nil
-	}
 
+	// Skip reconciliation only for terminal failure state.
+	// This prevents infinite retry loops when IDP operations fail.
 	if state == privatev1.OrganizationState_ORGANIZATION_STATE_FAILED {
 		return nil
 	}
 
+	// For synced organizations, no updates are needed since spec is empty.
+	// TODO: When fields are added to OrganizationSpec in the future, update logic would go here.
+	if state == privatev1.OrganizationState_ORGANIZATION_STATE_SYNCED {
+		return nil
+	}
+
+	// Organization is PENDING or UNSPECIFIED, perform initial sync to IDP
 	return t.syncToIDP(ctx)
 }
 
@@ -158,9 +169,8 @@ func (t *task) syncToIDP(ctx context.Context) error {
 
 	credentials, err := t.r.idpManager.CreateOrganization(ctx, config)
 	if err != nil {
-		msg := fmt.Sprintf("IDP sync failed: %v", err)
 		t.organization.GetStatus().SetState(privatev1.OrganizationState_ORGANIZATION_STATE_FAILED)
-		t.organization.GetStatus().SetMessage(msg)
+		t.organization.GetStatus().SetMessage(fmt.Sprintf("Organization creation in IDP failed: %v", err))
 		return nil
 	}
 
@@ -174,7 +184,7 @@ func (t *task) syncToIDP(ctx context.Context) error {
 	}.Build()
 	t.organization.GetStatus().SetBreakGlassCredentials(breakGlassCredentials)
 
-	t.r.logger.InfoContext(ctx, "Organization synced to IDP",
+	t.r.logger.DebugContext(ctx, "Organization synced to IDP",
 		slog.String("organization_id", t.organization.GetId()),
 		slog.String("organization_name", orgName),
 	)
@@ -203,6 +213,9 @@ func (t *task) validateTenant() error {
 // addFinalizer adds the controller finalizer to the organization if not already present.
 // Returns true if the finalizer was added (indicating the update should be saved immediately).
 func (t *task) addFinalizer() bool {
+	if !t.organization.HasMetadata() {
+		t.organization.SetMetadata(&privatev1.Metadata{})
+	}
 	list := t.organization.GetMetadata().GetFinalizers()
 	if !slices.Contains(list, finalizers.Controller) {
 		list = append(list, finalizers.Controller)
@@ -210,4 +223,47 @@ func (t *task) addFinalizer() bool {
 		return true
 	}
 	return false
+}
+
+// removeFinalizer removes the controller finalizer from the organization.
+func (t *task) removeFinalizer() {
+	if !t.organization.HasMetadata() {
+		return
+	}
+	list := t.organization.GetMetadata().GetFinalizers()
+	if slices.Contains(list, finalizers.Controller) {
+		list = slices.DeleteFunc(list, func(item string) bool {
+			return item == finalizers.Controller
+		})
+		t.organization.GetMetadata().SetFinalizers(list)
+	}
+}
+
+// delete performs the deletion cleanup for an organization.
+func (t *task) delete(ctx context.Context) error {
+	// Skip if not synced to IDP yet
+	if t.organization.GetStatus().GetState() != privatev1.OrganizationState_ORGANIZATION_STATE_SYNCED {
+		t.removeFinalizer()
+		return nil
+	}
+
+	// Delete from IDP
+	orgName := t.organization.GetStatus().GetIdpOrganizationName()
+	if orgName == "" {
+		t.removeFinalizer()
+		return nil
+	}
+
+	err := t.r.idpManager.DeleteOrganizationRealm(ctx, orgName)
+	if err != nil {
+		return fmt.Errorf("failed to delete IDP organization: %w", err)
+	}
+
+	t.r.logger.DebugContext(ctx, "Deleted organization from IDP",
+		slog.String("organization_id", t.organization.GetId()),
+		slog.String("idp_name", orgName),
+	)
+
+	t.removeFinalizer()
+	return nil
 }

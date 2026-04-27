@@ -16,10 +16,12 @@ package organization
 import (
 	"context"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
@@ -318,7 +320,7 @@ var _ = Describe("IDP Sync", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(organization.GetStatus().GetState()).To(Equal(privatev1.OrganizationState_ORGANIZATION_STATE_FAILED))
-		Expect(organization.GetStatus().GetMessage()).To(ContainSubstring("IDP sync failed"))
+		Expect(organization.GetStatus().GetMessage()).To(ContainSubstring("Organization creation in IDP failed"))
 		Expect(organization.GetStatus().GetMessage()).To(ContainSubstring("IDP connection timeout"))
 		Expect(organization.GetStatus().GetIdpOrganizationName()).To(BeEmpty())
 		Expect(organization.GetStatus().GetBreakGlassUserId()).To(BeEmpty())
@@ -345,6 +347,179 @@ var _ = Describe("IDP Sync", func() {
 
 		err := task.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
+	})
+})
+
+var _ = Describe("Deletion", func() {
+	var (
+		ctx        context.Context
+		ctrl       *gomock.Controller
+		mockClient *idp.MockClient
+		idpManager *idp.OrganizationManager
+		reconciler *function
+	)
+
+	BeforeEach(func() {
+		var err error
+		ctx = context.Background()
+		ctrl = gomock.NewController(GinkgoT())
+		mockClient = idp.NewMockClient(ctrl)
+
+		idpManager, err = idp.NewOrganizationManager().
+			SetLogger(logger).
+			SetClient(mockClient).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+
+		reconciler = &function{
+			logger:     logger,
+			idpManager: idpManager,
+		}
+	})
+
+	It("should delete organization from IDP and remove finalizer", func() {
+		deletionTimestamp := timestamppb.New(time.Now())
+		organization := privatev1.Organization_builder{
+			Id: "org-123",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "test-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: deletionTimestamp,
+			}.Build(),
+			Status: privatev1.OrganizationStatus_builder{
+				State:               privatev1.OrganizationState_ORGANIZATION_STATE_SYNCED,
+				IdpOrganizationName: "test-org",
+				BreakGlassUserId:    "user-123",
+			}.Build(),
+		}.Build()
+
+		mockClient.EXPECT().
+			DeleteOrganization(gomock.Any(), "test-org").
+			Return(nil).
+			Times(1)
+
+		task := &task{
+			r:            reconciler,
+			organization: organization,
+		}
+
+		err := task.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(organization.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+
+	It("should skip IDP deletion and remove finalizer when organization not synced", func() {
+		deletionTimestamp := timestamppb.New(time.Now())
+		organization := privatev1.Organization_builder{
+			Id: "org-123",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "test-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: deletionTimestamp,
+			}.Build(),
+			Status: privatev1.OrganizationStatus_builder{
+				State: privatev1.OrganizationState_ORGANIZATION_STATE_PENDING,
+			}.Build(),
+		}.Build()
+
+		task := &task{
+			r:            reconciler,
+			organization: organization,
+		}
+
+		err := task.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(organization.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+
+	It("should skip IDP deletion and remove finalizer when idp_organization_name is empty", func() {
+		deletionTimestamp := timestamppb.New(time.Now())
+		organization := privatev1.Organization_builder{
+			Id: "org-123",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "test-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: deletionTimestamp,
+			}.Build(),
+			Status: privatev1.OrganizationStatus_builder{
+				State:               privatev1.OrganizationState_ORGANIZATION_STATE_SYNCED,
+				IdpOrganizationName: "",
+			}.Build(),
+		}.Build()
+
+		task := &task{
+			r:            reconciler,
+			organization: organization,
+		}
+
+		err := task.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(organization.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+
+	It("should return error on IDP deletion failure and keep finalizer", func() {
+		deletionTimestamp := timestamppb.New(time.Now())
+		organization := privatev1.Organization_builder{
+			Id: "org-123",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "test-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: deletionTimestamp,
+			}.Build(),
+			Status: privatev1.OrganizationStatus_builder{
+				State:               privatev1.OrganizationState_ORGANIZATION_STATE_SYNCED,
+				IdpOrganizationName: "test-org",
+				BreakGlassUserId:    "user-123",
+			}.Build(),
+		}.Build()
+
+		mockClient.EXPECT().
+			DeleteOrganization(gomock.Any(), "test-org").
+			Return(fmt.Errorf("IDP connection timeout")).
+			Times(1)
+
+		task := &task{
+			r:            reconciler,
+			organization: organization,
+		}
+
+		err := task.delete(ctx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to delete IDP organization"))
+		Expect(err.Error()).To(ContainSubstring("IDP connection timeout"))
+		Expect(organization.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+	})
+
+	It("should remove finalizer when called", func() {
+		organization := privatev1.Organization_builder{
+			Metadata: privatev1.Metadata_builder{
+				Finalizers: []string{finalizers.Controller, "other-finalizer"},
+			}.Build(),
+		}.Build()
+
+		task := &task{
+			organization: organization,
+		}
+
+		task.removeFinalizer()
+		Expect(organization.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(organization.GetMetadata().GetFinalizers()).To(ContainElement("other-finalizer"))
+	})
+
+	It("should handle removal when finalizer not present", func() {
+		organization := privatev1.Organization_builder{
+			Metadata: privatev1.Metadata_builder{
+				Finalizers: []string{"other-finalizer"},
+			}.Build(),
+		}.Build()
+
+		task := &task{
+			organization: organization,
+		}
+
+		task.removeFinalizer()
+		Expect(organization.GetMetadata().GetFinalizers()).To(HaveLen(1))
+		Expect(organization.GetMetadata().GetFinalizers()).To(ContainElement("other-finalizer"))
 	})
 })
 
@@ -390,4 +565,5 @@ var _ = Describe("Skip Reconciliation", func() {
 		err := task.update(context.Background())
 		Expect(err).ToNot(HaveOccurred())
 	})
+
 })
