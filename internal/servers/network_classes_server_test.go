@@ -16,12 +16,14 @@ package servers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
@@ -143,6 +145,19 @@ var _ = Describe("Network classes server", func() {
 				Object: privatev1.NetworkClass_builder{
 					Title:                  "Test Network Class",
 					ImplementationStrategy: "ovn-kubernetes",
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			return response.GetObject()
+		}
+
+		// createDefaultNetworkClass creates a NetworkClass with is_default=true via the private server.
+		createDefaultNetworkClass := func() *privatev1.NetworkClass {
+			response, err := privateServer.Create(ctx, privatev1.NetworkClassesCreateRequest_builder{
+				Object: privatev1.NetworkClass_builder{
+					Title:                  "Default Network Class",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
 				}.Build(),
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
@@ -295,6 +310,507 @@ var _ = Describe("Network classes server", func() {
 			Expect(response.GetObject().GetId()).ToNot(Equal(callerProvidedId))
 			_, err = uuid.Parse(response.GetObject().GetId())
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		Describe("Default NetworkClass", func() {
+			It("Create NC with is_default=true is visible via public Get", func() {
+				// Create via private server with is_default=true:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Get via public server and verify is_default is visible:
+				getResponse, err := publicServer.Get(ctx, publicv1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Auto-swap on second default: first NC loses its default flag", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Create NC-B as default: NC-A should lose its default flag:
+				ncB := createDefaultNetworkClass()
+				Expect(ncB.GetIsDefault()).To(BeTrue())
+
+				// Verify NC-A is no longer the default:
+				getResponseA, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponseA.GetObject().GetIsDefault()).To(BeFalse())
+
+				// Verify NC-B is still the default:
+				getResponseB, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncB.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponseB.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Update to set is_default triggers swap", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Create NC-B not as default:
+				ncB := createNetworkClass()
+				Expect(ncB.GetIsDefault()).To(BeFalse())
+
+				// Update NC-B with field mask setting is_default=true:
+				updateResponse, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:        ncB.GetId(),
+						IsDefault: proto.Bool(true),
+					}.Build(),
+					UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"is_default"}},
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updateResponse.GetObject().GetIsDefault()).To(BeTrue())
+
+				// Verify NC-A lost its default:
+				getResponseA, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponseA.GetObject().GetIsDefault()).To(BeFalse())
+			})
+
+			It("Update NC-B with is_default=false does not clear NC-A default", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Create NC-B (non-default):
+				ncB := createNetworkClass()
+				Expect(ncB.GetIsDefault()).To(BeFalse())
+
+				// Explicitly set NC-B's is_default=false via masked Update.
+				// The swap guard (HasIsDefault=true, GetIsDefault=false) should NOT fire.
+				_, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:        ncB.GetId(),
+						IsDefault: proto.Bool(false),
+					}.Build(),
+					UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"is_default"}},
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+
+				// NC-A should still be the default (swap was not triggered):
+				getResponse, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Update to unset is_default: no defaults remain", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Update NC-A setting is_default=false:
+				updateResponse, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:        ncA.GetId(),
+						IsDefault: proto.Bool(false),
+					}.Build(),
+					UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"is_default"}},
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updateResponse.GetObject().GetIsDefault()).To(BeFalse())
+
+				// Verify no defaults remain by listing:
+				listResponse, err := privateServer.List(ctx, privatev1.NetworkClassesListRequest_builder{
+					Filter: proto.String("this.is_default == true"),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(listResponse.GetItems()).To(BeEmpty())
+			})
+
+			It("Setting same NC as default again is idempotent", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Update NC-A with is_default=true again (idempotent):
+				updateResponse, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:        ncA.GetId(),
+						IsDefault: proto.Bool(true),
+					}.Build(),
+					UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"is_default"}},
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updateResponse.GetObject().GetIsDefault()).To(BeTrue())
+
+				// Verify via Get that it's still true:
+				getResponse, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Public Update preserves is_default when changing other fields", func() {
+				// Create NC-A as default via private server:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Do a public Update changing only the title (not touching is_default):
+				_, err := publicServer.Update(ctx, publicv1.NetworkClassesUpdateRequest_builder{
+					Object: publicv1.NetworkClass_builder{
+						Id:    ncA.GetId(),
+						Title: "Updated Title",
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+
+				// Verify is_default is still true via public Get:
+				getResponse, err := publicServer.Get(ctx, publicv1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+				Expect(getResponse.GetObject().GetTitle()).To(Equal("Updated Title"))
+			})
+
+			It("Public API cannot clear is_default via Update", func() {
+				// Create NC-A as default via private server:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Attempt public Update with is_default=false (AddIgnoredFields should prevent it):
+				_, err := publicServer.Update(ctx, publicv1.NetworkClassesUpdateRequest_builder{
+					Object: publicv1.NetworkClass_builder{
+						Id:        ncA.GetId(),
+						Title:     ncA.GetTitle(),
+						IsDefault: proto.Bool(false),
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+
+				// Verify is_default is still true (the public inMapper ignores is_default):
+				getResponse, err := publicServer.Get(ctx, publicv1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Multiple defaults fallback: newest by creation_timestamp wins", func() {
+				// Create two NCs with is_default=true via DAO directly (bypasses swap logic
+				// to simulate a race condition where two concurrent Creates both succeed):
+				ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+					SetLogger(logger).
+					SetTenancyLogic(tenancy).
+					Build()
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				ncA := privatev1.NetworkClass_builder{
+					Title:                  "NC-A",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				createResponseA, ncErr := ncDao.Create().SetObject(ncA).Do(ctx)
+				Expect(ncErr).ToNot(HaveOccurred())
+				ncAId := createResponseA.GetObject().GetId()
+
+				ncB := privatev1.NetworkClass_builder{
+					Title:                  "NC-B",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				createResponseB, ncErr := ncDao.Create().SetObject(ncB).Do(ctx)
+				Expect(ncErr).ToNot(HaveOccurred())
+				ncBId := createResponseB.GetObject().GetId()
+
+				// Backdate NC-A so NC-B is seen as newer by findDefaultNetworkClass.
+				_, ncErr = tx.Exec(ctx,
+					"UPDATE network_classes SET creation_timestamp = $1 WHERE id = $2",
+					time.Now().Add(-1*time.Minute), ncAId,
+				)
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				// Verify: both NCs have is_default=true (invariant violation):
+				listResponse, err := privateServer.List(ctx, privatev1.NetworkClassesListRequest_builder{
+					Filter: proto.String("this.is_default == true"),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(listResponse.GetItems()).To(HaveLen(2))
+
+				// The default-swap on a new Create should clear all existing defaults:
+				ncC := createDefaultNetworkClass()
+				Expect(ncC.GetIsDefault()).To(BeTrue())
+
+				// NC-B should have been unset by the swap:
+				getResponseB, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncBId,
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponseB.GetObject().GetIsDefault()).To(BeFalse())
+
+				// NC-A should also have been unset (clearExistingDefaults clears all):
+				getResponseA, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncAId,
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponseA.GetObject().GetIsDefault()).To(BeFalse())
+
+				// NC-C is the new default:
+				getResponseC, err := publicServer.Get(ctx, publicv1.NetworkClassesGetRequest_builder{
+					Id: ncC.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponseC.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Update without UpdateMask and IsDefault=true applies via proto.Merge", func() {
+				// Create NC-A not as default:
+				ncA := createNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeFalse())
+
+				// Update without a field mask, setting is_default=true (proto.Merge path):
+				updateResponse, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:        ncA.GetId(),
+						Title:     ncA.GetTitle(),
+						IsDefault: proto.Bool(true),
+					}.Build(),
+					// No UpdateMask — triggers proto.Merge branch in applyNetworkClassUpdate
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updateResponse.GetObject().GetIsDefault()).To(BeTrue())
+
+				// Verify persisted via Get:
+				getResponse, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Update without UpdateMask and IsDefault absent clears is_default via full replacement", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Update without a field mask, with is_default absent in the update object.
+				// generic.Update replaces the entire object, so absent fields are cleared.
+				updateResponse, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:    ncA.GetId(),
+						Title: ncA.GetTitle(),
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updateResponse.GetObject().GetIsDefault()).To(BeFalse())
+			})
+
+			It("No-mask Update omitting is_default does not clear other defaults", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Create NC-B (non-default):
+				ncB := createNetworkClass()
+
+				// Update NC-B with no mask and is_default absent.
+				// The swap guard uses HasIsDefault() on the request object,
+				// so it should NOT fire (is_default was not explicitly set).
+				_, err := privateServer.Update(ctx, privatev1.NetworkClassesUpdateRequest_builder{
+					Object: privatev1.NetworkClass_builder{
+						Id:    ncB.GetId(),
+						Title: "updated title",
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+
+				// NC-A should still be the default (clearExistingDefaults was not triggered):
+				getResponse, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("clearExistingDefaults skips soft-deleted NCs", func() {
+				// Create NC-A as default via DAO:
+				ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+					SetLogger(logger).
+					SetTenancyLogic(tenancy).
+					Build()
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				ncA := privatev1.NetworkClass_builder{
+					Title:                  "NC-A",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				createResponseA, ncErr := ncDao.Create().SetObject(ncA).Do(ctx)
+				Expect(ncErr).ToNot(HaveOccurred())
+				ncAId := createResponseA.GetObject().GetId()
+
+				// Soft-delete NC-A by setting deletion_timestamp via SQL:
+				_, ncErr = tx.Exec(ctx,
+					"UPDATE network_classes SET deletion_timestamp = now() WHERE id = $1",
+					ncAId,
+				)
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				// Create NC-B as the new default (triggers clearExistingDefaults):
+				ncB := createDefaultNetworkClass()
+				Expect(ncB.GetIsDefault()).To(BeTrue())
+
+				// Verify NC-A still exists (was not archived by clearExistingDefaults):
+				getResponse, err := privateServer.Get(ctx, privatev1.NetworkClassesGetRequest_builder{
+					Id: ncAId,
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				// NC-A is soft-deleted but not archived — it still has is_default=true
+				// because clearExistingDefaults skipped it.
+				Expect(getResponse.GetObject().GetIsDefault()).To(BeTrue())
+			})
+
+			It("Unique partial index prevents second default NC via DAO", func() {
+				// Apply the unique partial index from migration 28 (CreateTables does
+				// not include migration-specific indexes):
+				_, sqlErr := tx.Exec(ctx, `
+					create unique index if not exists network_classes_single_default
+					  on network_classes ((cast(data->>'is_default' as bool)))
+					  where cast(data->>'is_default' as bool) = true
+					    and deletion_timestamp = 'epoch'
+				`)
+				Expect(sqlErr).ToNot(HaveOccurred())
+
+				// Create first default NC via DAO (bypassing server swap logic):
+				ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+					SetLogger(logger).
+					SetTenancyLogic(tenancy).
+					Build()
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				ncA := privatev1.NetworkClass_builder{
+					Title:                  "NC-A",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				_, ncErr = ncDao.Create().SetObject(ncA).Do(ctx)
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				// Second default NC via DAO should fail with unique violation:
+				ncB := privatev1.NetworkClass_builder{
+					Title:                  "NC-B",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				_, ncErr = ncDao.Create().SetObject(ncB).Do(ctx)
+				Expect(ncErr).To(HaveOccurred())
+				Expect(ncErr.Error()).To(ContainSubstring("already exists"))
+			})
+
+			It("findDefaultNetworkClass excludes soft-deleted records", func() {
+				// Create a DAO for direct data setup:
+				ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+					SetLogger(logger).
+					SetTenancyLogic(tenancy).
+					Build()
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				// Create two NCs with is_default=true via DAO:
+				ncActive := privatev1.NetworkClass_builder{
+					Title:                  "Active Default",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				activeResponse, ncErr := ncDao.Create().SetObject(ncActive).Do(ctx)
+				Expect(ncErr).ToNot(HaveOccurred())
+				activeID := activeResponse.GetObject().GetId()
+
+				ncDeleted := privatev1.NetworkClass_builder{
+					Title:                  "Deleted Default",
+					ImplementationStrategy: "ovn-kubernetes",
+					IsDefault:              proto.Bool(true),
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Status: privatev1.NetworkClassStatus_builder{
+						State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+					}.Build(),
+				}.Build()
+				deletedResponse, ncErr := ncDao.Create().SetObject(ncDeleted).Do(ctx)
+				Expect(ncErr).ToNot(HaveOccurred())
+
+				// Soft-delete one of them:
+				_, sqlErr := tx.Exec(ctx,
+					"UPDATE network_classes SET deletion_timestamp = now() WHERE id = $1",
+					deletedResponse.GetObject().GetId(),
+				)
+				Expect(sqlErr).ToNot(HaveOccurred())
+
+				// Call findDefaultNetworkClass directly — should return only the active one:
+				result, err := findDefaultNetworkClass(ctx, logger, ncDao)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).ToNot(BeNil())
+				Expect(result.GetId()).To(Equal(activeID))
+			})
+
+			It("Delete the default NC: no defaults remain in List", func() {
+				// Create NC-A as default:
+				ncA := createDefaultNetworkClass()
+				Expect(ncA.GetIsDefault()).To(BeTrue())
+
+				// Delete NC-A immediately (no finalizers so it is hard-deleted):
+				_, err := publicServer.Delete(ctx, publicv1.NetworkClassesDeleteRequest_builder{
+					Id: ncA.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+
+				// Verify no defaults remain in List:
+				listResponse, err := privateServer.List(ctx, privatev1.NetworkClassesListRequest_builder{
+					Filter: proto.String("this.is_default == true"),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(listResponse.GetItems()).To(BeEmpty())
+			})
 		})
 	})
 })

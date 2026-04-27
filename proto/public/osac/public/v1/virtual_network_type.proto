@@ -58,9 +58,10 @@ message VirtualNetworkSpec {
   // The NetworkClass must support the requested IP addressing capabilities (IPv4, IPv6, or dual-stack) specified
   // via the capabilities field.
   //
-  // This field is required and immutable after creation.
+  // If omitted on creation and a default NetworkClass is configured, the default is used;
+  // otherwise creation fails. Once set, this field is immutable.
   string network_class = 2 [
-    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = OPTIONAL,
     (google.api.field_behavior) = IMMUTABLE
   ];
 

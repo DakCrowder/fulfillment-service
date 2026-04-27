@@ -103,6 +103,38 @@ var _ = Describe("Private virtual networks server", func() {
 		return response.GetObject()
 	}
 
+	// createDefaultNetworkClassViaDAO creates a NetworkClass with is_default=true via the DAO.
+	createDefaultNetworkClassViaDAO := func(ctx context.Context, state privatev1.NetworkClassState) *privatev1.NetworkClass {
+		ncDao, err := dao.NewGenericDAO[*privatev1.NetworkClass]().
+			SetLogger(logger).
+			SetTenancyLogic(tenancy).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+
+		nc := privatev1.NetworkClass_builder{
+			ImplementationStrategy: "test-strategy",
+			IsDefault:              proto.Bool(true),
+			Metadata: privatev1.Metadata_builder{
+				Tenants: []string{"shared"},
+			}.Build(),
+			Capabilities: privatev1.NetworkClassCapabilities_builder{
+				SupportsIpv4:      true,
+				SupportsIpv6:      true,
+				SupportsDualStack: true,
+			}.Build(),
+			Status: privatev1.NetworkClassStatus_builder{
+				State: state,
+			}.Build(),
+		}.Build()
+
+		response, err := ncDao.Create().
+			SetObject(nc).
+			Do(ctx)
+		Expect(err).ToNot(HaveOccurred())
+
+		return response.GetObject()
+	}
+
 	Describe("Creation", func() {
 		It("Can be built if all the required parameters are set", func() {
 			server, err := NewPrivateVirtualNetworksServer().
@@ -350,7 +382,7 @@ var _ = Describe("Private virtual networks server", func() {
 				Expect(err.Error()).To(ContainSubstring("does not exist"))
 			})
 
-			It("rejects empty NetworkClass", func() {
+			It("rejects empty NetworkClass when no default exists", func() {
 				vn := privatev1.VirtualNetwork_builder{
 					Spec: privatev1.VirtualNetworkSpec_builder{
 						Ipv4Cidr: proto.String("10.0.0.0/16"),
@@ -360,8 +392,7 @@ var _ = Describe("Private virtual networks server", func() {
 
 				_, err := server.validateVirtualNetwork(ctx, vn, nil)
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("network_class"))
-				Expect(err.Error()).To(ContainSubstring("required"))
+				Expect(err.Error()).To(ContainSubstring("no default NetworkClass is configured"))
 			})
 		})
 
@@ -1122,6 +1153,228 @@ var _ = Describe("Private virtual networks server", func() {
 			response, err := generic.List().Do(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(response.GetItems()).To(HaveLen(2))
+		})
+	})
+
+	Describe("Default NetworkClass auto-population", func() {
+		var vnServer *PrivateVirtualNetworksServer
+
+		BeforeEach(func() {
+			var err error
+			vnServer, err = NewPrivateVirtualNetworksServer().
+				SetLogger(logger).
+				SetAttributionLogic(attribution).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("Create VN without network_class auto-populates from default NC", func() {
+			// Create a default NC in READY state:
+			defaultNC := createDefaultNetworkClassViaDAO(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Create VN without network_class:
+			createResponse, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Region:   "us-west-1",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createResponse.GetObject().GetSpec().GetNetworkClass()).To(Equal(defaultNC.GetId()))
+		})
+
+		It("Create VN without network_class when no default exists returns error", func() {
+			// Create NC without is_default=true:
+			createNetworkClass(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Create VN without network_class (no default configured):
+			_, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Region:   "us-west-1",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("no default NetworkClass is configured"))
+		})
+
+		It("Explicit network_class ignores default", func() {
+			// Create NC-A as default:
+			_ = createDefaultNetworkClassViaDAO(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Create NC-B as non-default:
+			ncB := createNetworkClass(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Create VN with explicit network_class=NC-B:
+			createResponse, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr:     proto.String("10.0.0.0/16"),
+						Region:       "us-west-1",
+						NetworkClass: ncB.GetId(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createResponse.GetObject().GetSpec().GetNetworkClass()).To(Equal(ncB.GetId()))
+		})
+
+		It("Default NC must be READY: PENDING default returns FailedPrecondition", func() {
+			// Create a default NC in PENDING state:
+			createDefaultNetworkClassViaDAO(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_PENDING)
+
+			// Create VN without network_class (default is not READY):
+			_, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Region:   "us-west-1",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("not in READY state"))
+		})
+
+		It("Default NC capability mismatch is rejected", func() {
+			// Create a default NC that supports only IPv4 (not IPv6):
+			ncDao, err := dao.NewGenericDAO[*privatev1.NetworkClass]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			nc := privatev1.NetworkClass_builder{
+				ImplementationStrategy: "test-strategy",
+				IsDefault:              proto.Bool(true),
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				Capabilities: privatev1.NetworkClassCapabilities_builder{
+					SupportsIpv4: true,
+					SupportsIpv6: false,
+				}.Build(),
+				Status: privatev1.NetworkClassStatus_builder{
+					State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+				}.Build(),
+			}.Build()
+			_, err = ncDao.Create().SetObject(nc).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create VN without network_class but requesting IPv6 capability:
+			// Must set both capabilities AND ipv6_cidr to trigger VN-VAL-06 check.
+			_, err = vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv6Cidr: proto.String("2001:db8::/32"),
+						Region:   "us-west-1",
+						Capabilities: privatev1.VirtualNetworkCapabilities_builder{
+							EnableIpv6: true,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(err.Error()).To(ContainSubstring("does not support IPv6"))
+		})
+
+		It("Create VN without network_class after default NC is deleted", func() {
+			// Create a default NC in READY state, then delete it via DAO:
+			defaultNC := createDefaultNetworkClassViaDAO(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+			ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(ncErr).ToNot(HaveOccurred())
+			_, ncErr = ncDao.Delete().SetId(defaultNC.GetId()).Do(ctx)
+			Expect(ncErr).ToNot(HaveOccurred())
+
+			// Attempt to create VN without network_class (no default exists now):
+			_, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Region:   "us-west-1",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("no default NetworkClass is configured"))
+		})
+
+		It("Create VN without network_class rejects soft-deleted default NC", func() {
+			// Create a default NC in READY state:
+			defaultNC := createDefaultNetworkClassViaDAO(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Soft-delete the default NC by setting deletion_timestamp via SQL:
+			_, sqlErr := tx.Exec(ctx,
+				"UPDATE network_classes SET deletion_timestamp = now() WHERE id = $1",
+				defaultNC.GetId(),
+			)
+			Expect(sqlErr).ToNot(HaveOccurred())
+
+			// Create VN without network_class. findDefaultNetworkClass excludes
+			// soft-deleted rows, so no active default is found and creation fails.
+			_, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Region:   "us-west-1",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("no default NetworkClass is configured"))
+		})
+
+		It("Auto-populated network_class is immutable on Update", func() {
+			// Create a default NC in READY state:
+			defaultNC := createDefaultNetworkClassViaDAO(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Create VN without network_class (auto-populated):
+			createResponse, err := vnServer.Create(ctx, privatev1.VirtualNetworksCreateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Region:   "us-west-1",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			vn := createResponse.GetObject()
+			Expect(vn.GetSpec().GetNetworkClass()).To(Equal(defaultNC.GetId()))
+
+			// Create a second NC to attempt switching to:
+			ncB := createNetworkClass(ctx, privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY)
+
+			// Attempt Update changing network_class:
+			_, err = vnServer.Update(ctx, privatev1.VirtualNetworksUpdateRequest_builder{
+				Object: privatev1.VirtualNetwork_builder{
+					Id: vn.GetId(),
+					Spec: privatev1.VirtualNetworkSpec_builder{
+						Ipv4Cidr:     proto.String("10.0.0.0/16"),
+						Region:       "us-west-1",
+						NetworkClass: ncB.GetId(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(err.Error()).To(ContainSubstring("network_class"))
+			Expect(err.Error()).To(ContainSubstring("immutable"))
 		})
 	})
 })

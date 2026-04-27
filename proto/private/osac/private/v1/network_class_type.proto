@@ -61,6 +61,10 @@ message NetworkClass {
 
   // Current operational status of the network class.
   NetworkClassStatus status = 8;
+
+  // Whether this NetworkClass is the default. Only one NetworkClass can be the default at a time.
+  // When a VirtualNetwork is created without specifying network_class, the default NetworkClass is used.
+  optional bool is_default = 9;
 }
 
 // Defines configuration constraints for a specific NetworkClass implementation.

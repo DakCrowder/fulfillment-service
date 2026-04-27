@@ -63,19 +63,18 @@ message VirtualNetworkSpec {
     (google.api.field_behavior) = IMMUTABLE
   ];
 
-  // NetworkClass implementation strategy to use for this network.
+  // The NetworkClass for this VirtualNetwork. If omitted on creation, the default NetworkClass is used.
+  // Once set (either explicitly or via default), this field is immutable.
   //
-  // This references the `implementation_strategy` field of a NetworkClass resource. The selected NetworkClass
-  // determines the underlying network backend (e.g., "udn-net", "phys-net") and the available capabilities.
+  // This field stores the ID of the selected NetworkClass resource. The selected NetworkClass determines the
+  // network backend (implementation_strategy) and the available capabilities.
   //
   // The NetworkClass must support the requested IP addressing capabilities (IPv4, IPv6, or dual-stack) specified
   // via the capabilities field.
   //
-  // This field is required and immutable after creation.
-  //
   // Example: "udn-net", "phys-net", "ovn-kubernetes"
   string network_class = 2 [
-    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = OPTIONAL,
     (google.api.field_behavior) = IMMUTABLE
   ];
 

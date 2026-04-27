@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 
 	"github.com/prometheus/client_golang/prometheus"
 	grpccodes "google.golang.org/grpc/codes"
@@ -27,7 +28,42 @@ import (
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
 	"github.com/osac-project/fulfillment-service/internal/database"
+	"github.com/osac-project/fulfillment-service/internal/database/dao"
 )
+
+// findDefaultNetworkClass returns the current default NetworkClass using the provided DAO, or nil if none is set.
+// If multiple defaults exist (invariant violation), it returns the newest and logs a warning.
+func findDefaultNetworkClass(ctx context.Context, logger *slog.Logger, ncDao *dao.GenericDAO[*privatev1.NetworkClass]) (*privatev1.NetworkClass, error) {
+	listResponse, err := ncDao.List().
+		SetFilter("this.is_default == true").
+		Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Exclude soft-deleted records — the DAO does not filter these automatically, and a
+	// recently-deleted default NC must not be returned as the active default.
+	var items []*privatev1.NetworkClass
+	for _, nc := range listResponse.GetItems() {
+		if !nc.GetMetadata().HasDeletionTimestamp() {
+			items = append(items, nc)
+		}
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	// Sort newest-first so that the invariant-violation fallback is deterministic.
+	sort.Slice(items, func(i, j int) bool {
+		ti := items[i].GetMetadata().GetCreationTimestamp().AsTime()
+		tj := items[j].GetMetadata().GetCreationTimestamp().AsTime()
+		return ti.After(tj)
+	})
+	if len(items) > 1 {
+		logger.WarnContext(ctx, "multiple default NetworkClasses found, using newest",
+			slog.Int("count", len(items)),
+		)
+	}
+	return items[0], nil
+}
 
 type PrivateNetworkClassesServerBuilder struct {
 	logger            *slog.Logger
@@ -139,7 +175,31 @@ func (s *PrivateNetworkClassesServer) Create(ctx context.Context,
 	// Clear any caller-provided ID so the DAO always generates a UUID.
 	nc.SetId("")
 
+	// Default-swap: if this NC is being created as the default, unset all existing defaults.
+	// Both the old-default unset(s) and the new-NC persist share this request's database transaction via ctx.
+	if nc.GetIsDefault() {
+		err = s.clearExistingDefaults(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	err = s.generic.Create(ctx, request, &response)
+	if err != nil {
+		// When creating a default NC, a concurrent default-swap triggers the unique partial
+		// index (network_classes_single_default). The error path is:
+		//   DAO catches UniqueViolation → wraps as ErrAlreadyExists (discards pgconn.PgError)
+		//   → GenericServer maps ErrAlreadyExists → gRPC AlreadyExists status error.
+		// Since we generate fresh UUIDs (line 178 clears caller-provided ID), a primary key
+		// collision is impossible — so a gRPC AlreadyExists here means a concurrent
+		// default-swap conflict from the unique partial index.
+		if nc.GetIsDefault() {
+			if st, ok := grpcstatus.FromError(err); ok && st.Code() == grpccodes.AlreadyExists {
+				return nil, grpcstatus.Errorf(grpccodes.FailedPrecondition,
+					"concurrent default NetworkClass change detected, please retry")
+			}
+		}
+	}
 	return
 }
 
@@ -173,6 +233,34 @@ func (s *PrivateNetworkClassesServer) Update(ctx context.Context,
 		return
 	}
 
+	// Default-swap: if the update sets is_default=true AND the field is actually being applied
+	// (nil mask = full update, or "is_default" is in the mask), unset all other existing defaults.
+	// Both the old-default unset(s) and the NC persist share this request's database transaction via ctx.
+	if request.GetObject().HasIsDefault() && request.GetObject().GetIsDefault() {
+		shouldSwap := true
+		if mask := request.GetUpdateMask(); mask != nil && len(mask.GetPaths()) > 0 {
+			shouldSwap = false
+			for _, path := range mask.GetPaths() {
+				if path == "is_default" {
+					shouldSwap = true
+					break
+				}
+			}
+		}
+		if shouldSwap {
+			err = s.clearExistingDefaults(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// NOTE: On the Update path, a concurrent default-swap UniqueViolation is normalized
+	// to gRPC Internal by GenericServer (the DAO Update does not catch UniqueViolation,
+	// and GenericServer wraps unknown errors as Internal). We cannot distinguish the
+	// constraint violation from other Internal errors at this layer. The error is
+	// normalized (no raw DB details leak), but the message is opaque. Fixing this
+	// requires GenericServer to preserve pgconn errors in the chain.
 	err = s.generic.Update(ctx, request, &response)
 	return
 }
@@ -187,6 +275,48 @@ func (s *PrivateNetworkClassesServer) Signal(ctx context.Context,
 	request *privatev1.NetworkClassesSignalRequest) (response *privatev1.NetworkClassesSignalResponse, err error) {
 	err = s.generic.Signal(ctx, request, &response)
 	return
+}
+
+// clearExistingDefaults fetches all NetworkClasses with is_default == true, except the one with
+// the given excludeID, and clears the is_default flag on each. Used during default-swap to ensure
+// only one default exists at a time even if the invariant was previously violated.
+//
+// Concurrent default-swap requests are safe: the unique partial index network_classes_single_default
+// (migration 28) prevents two concurrent transactions from both committing is_default=true.
+// The losing transaction receives a unique constraint violation from the database.
+func (s *PrivateNetworkClassesServer) clearExistingDefaults(ctx context.Context, excludeID string) error {
+	listResponse, err := s.generic.dao.List().
+		SetFilter("this.is_default == true").
+		Do(ctx)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to list default NetworkClasses",
+			slog.Any("error", err),
+		)
+		return grpcstatus.Errorf(grpccodes.Internal, "failed to clear existing default NetworkClasses")
+	}
+	for _, nc := range listResponse.GetItems() {
+		if nc.GetId() == excludeID {
+			continue
+		}
+		// Skip soft-deleted NCs: calling dao.Update on a soft-deleted NC with no finalizers
+		// triggers archiving (generic_dao_update.go), which is an unintended side effect.
+		if nc.GetMetadata().HasDeletionTimestamp() {
+			continue
+		}
+		s.logger.InfoContext(ctx, "unsetting previous default NetworkClass",
+			"old_default_id", nc.GetId(),
+		)
+		nc.ClearIsDefault()
+		_, err = s.generic.dao.Update().SetObject(nc).Do(ctx)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "Failed to clear default on NetworkClass",
+				slog.String("network_class_id", nc.GetId()),
+				slog.Any("error", err),
+			)
+			return grpcstatus.Errorf(grpccodes.Internal, "failed to clear existing default NetworkClasses")
+		}
+	}
+	return nil
 }
 
 // validateNetworkClass validates the NetworkClass object.
@@ -263,6 +393,8 @@ func applyNetworkClassUpdate(base, update *privatev1.NetworkClass, mask *fieldma
 			base.SetImplementationStrategy(update.GetImplementationStrategy())
 		case "capabilities":
 			base.SetCapabilities(update.GetCapabilities())
+		case "is_default":
+			base.SetIsDefault(update.GetIsDefault())
 		default:
 			// For unknown paths, fall through - the generic handler will
 			// reject invalid paths if needed.

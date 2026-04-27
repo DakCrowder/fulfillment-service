@@ -283,15 +283,14 @@ type VirtualNetworkSpec struct {
 	//
 	// Example: "us-east-1", "eu-west-2"
 	Region string `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`
-	// NetworkClass implementation strategy to use for this network.
+	// The NetworkClass for this VirtualNetwork. If omitted on creation, the default NetworkClass is used.
+	// Once set (either explicitly or via default), this field is immutable.
 	//
-	// This references the `implementation_strategy` field of a NetworkClass resource. The selected NetworkClass
-	// determines the underlying network backend (e.g., "udn-net", "phys-net") and the available capabilities.
+	// This field stores the ID of the selected NetworkClass resource. The selected NetworkClass determines the
+	// network backend (implementation_strategy) and the available capabilities.
 	//
 	// The NetworkClass must support the requested IP addressing capabilities (IPv4, IPv6, or dual-stack) specified
 	// via the capabilities field.
-	//
-	// This field is required and immutable after creation.
 	//
 	// Example: "udn-net", "phys-net", "ovn-kubernetes"
 	NetworkClass string `protobuf:"bytes,2,opt,name=network_class,json=networkClass,proto3" json:"network_class,omitempty"`
@@ -466,15 +465,14 @@ type VirtualNetworkSpec_builder struct {
 	//
 	// Example: "us-east-1", "eu-west-2"
 	Region string
-	// NetworkClass implementation strategy to use for this network.
+	// The NetworkClass for this VirtualNetwork. If omitted on creation, the default NetworkClass is used.
+	// Once set (either explicitly or via default), this field is immutable.
 	//
-	// This references the `implementation_strategy` field of a NetworkClass resource. The selected NetworkClass
-	// determines the underlying network backend (e.g., "udn-net", "phys-net") and the available capabilities.
+	// This field stores the ID of the selected NetworkClass resource. The selected NetworkClass determines the
+	// network backend (implementation_strategy) and the available capabilities.
 	//
 	// The NetworkClass must support the requested IP addressing capabilities (IPv4, IPv6, or dual-stack) specified
 	// via the capabilities field.
-	//
-	// This field is required and immutable after creation.
 	//
 	// Example: "udn-net", "phys-net", "ovn-kubernetes"
 	NetworkClass string
@@ -776,7 +774,7 @@ var file_osac_private_v1_virtual_network_type_proto_rawDesc = string([]byte{
 	0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x06, 0xe0, 0x41,
 	0x02, 0xe0, 0x41, 0x05, 0x52, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x12, 0x2b, 0x0a, 0x0d,
 	0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x5f, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x09, 0x42, 0x06, 0xe0, 0x41, 0x02, 0xe0, 0x41, 0x05, 0x52, 0x0c, 0x6e, 0x65, 0x74,
+	0x01, 0x28, 0x09, 0x42, 0x06, 0xe0, 0x41, 0x01, 0xe0, 0x41, 0x05, 0x52, 0x0c, 0x6e, 0x65, 0x74,
 	0x77, 0x6f, 0x72, 0x6b, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x12, 0x25, 0x0a, 0x09, 0x69, 0x70, 0x76,
 	0x34, 0x5f, 0x63, 0x69, 0x64, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x42, 0x03, 0xe0, 0x41,
 	0x05, 0x48, 0x00, 0x52, 0x08, 0x69, 0x70, 0x76, 0x34, 0x43, 0x69, 0x64, 0x72, 0x88, 0x01, 0x01,

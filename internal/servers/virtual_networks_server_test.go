@@ -94,6 +94,7 @@ var _ = Describe("Virtual networks server", func() {
 			Metadata: privatev1.Metadata_builder{
 				Tenants: []string{"shared"},
 			}.Build(),
+			IsDefault: proto.Bool(true),
 			Capabilities: privatev1.NetworkClassCapabilities_builder{
 				SupportsIpv4:      true,
 				SupportsIpv6:      true,
@@ -447,6 +448,152 @@ var _ = Describe("Virtual networks server", func() {
 			Expect(err).ToNot(HaveOccurred())
 			object := getResponse.GetObject()
 			Expect(object.GetMetadata().GetDeletionTimestamp()).ToNot(BeNil())
+		})
+
+		It("Public Create without network_class auto-populates from default NC", func() {
+			// Create VN via public server WITHOUT network_class (should use default NC):
+			createResponse, err := publicServer.Create(ctx, publicv1.VirtualNetworksCreateRequest_builder{
+				Object: publicv1.VirtualNetwork_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: "default-nc-vn",
+					}.Build(),
+					Spec: publicv1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.2.0.0/16"),
+						Capabilities: publicv1.VirtualNetworkCapabilities_builder{
+							EnableIpv4: true,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the VN's network_class is the default NC's ID:
+			Expect(createResponse.GetObject().GetSpec().GetNetworkClass()).To(Equal("default"))
+		})
+
+		It("Public Create honors explicit network_class instead of using default", func() {
+			// Create a second non-default NetworkClass via DAO:
+			ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(ncErr).ToNot(HaveOccurred())
+
+			altNC := privatev1.NetworkClass_builder{
+				ImplementationStrategy: "ovn-kubernetes",
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				Capabilities: privatev1.NetworkClassCapabilities_builder{
+					SupportsIpv4: true,
+				}.Build(),
+				Status: privatev1.NetworkClassStatus_builder{
+					State: privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY,
+				}.Build(),
+			}.Build()
+			createNcResponse, ncErr := ncDao.Create().SetObject(altNC).Do(ctx)
+			Expect(ncErr).ToNot(HaveOccurred())
+			altNCId := createNcResponse.GetObject().GetId()
+
+			// Create VN via public server with explicit network_class pointing to altNC:
+			createResponse, err := publicServer.Create(ctx, publicv1.VirtualNetworksCreateRequest_builder{
+				Object: publicv1.VirtualNetwork_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: "explicit-nc-vn",
+					}.Build(),
+					Spec: publicv1.VirtualNetworkSpec_builder{
+						NetworkClass: altNCId,
+						Ipv4Cidr:     proto.String("10.1.0.0/16"),
+						Capabilities: publicv1.VirtualNetworkCapabilities_builder{
+							EnableIpv4: true,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the VN uses the alternate NC, NOT the default:
+			Expect(createResponse.GetObject().GetSpec().GetNetworkClass()).To(Equal(altNCId))
+		})
+
+		It("Public Update preserves network_class (AddIgnoredFields on inMapper)", func() {
+			// Create VN via private server with explicit network_class:
+			privateObj := createVirtualNetwork()
+			Expect(privateObj.GetSpec().GetNetworkClass()).To(Equal("default"))
+
+			// Update via public server changing only metadata (no network_class in request):
+			updateResponse, err := publicServer.Update(ctx, publicv1.VirtualNetworksUpdateRequest_builder{
+				Object: publicv1.VirtualNetwork_builder{
+					Id: privateObj.GetId(),
+					Metadata: publicv1.Metadata_builder{
+						Name: "renamed-vn",
+					}.Build(),
+					Spec: publicv1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.0.0.0/16"),
+						Capabilities: publicv1.VirtualNetworkCapabilities_builder{
+							EnableIpv4: true,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			// The network_class should still be "default" even though it was not in the public update request:
+			Expect(updateResponse.GetObject().GetSpec().GetNetworkClass()).To(Equal("default"))
+			Expect(updateResponse.GetObject().GetMetadata().GetName()).To(Equal("renamed-vn"))
+		})
+
+		It("Public Update rejects explicit network_class change with immutability error", func() {
+			// Create VN via private server with explicit network_class:
+			privateObj := createVirtualNetwork()
+			Expect(privateObj.GetSpec().GetNetworkClass()).To(Equal("default"))
+
+			// Update via public server with a different network_class:
+			_, err := publicServer.Update(ctx, publicv1.VirtualNetworksUpdateRequest_builder{
+				Object: publicv1.VirtualNetwork_builder{
+					Id: privateObj.GetId(),
+					Spec: publicv1.VirtualNetworkSpec_builder{
+						NetworkClass: "different-nc",
+						Ipv4Cidr:     proto.String("10.0.0.0/16"),
+						Capabilities: publicv1.VirtualNetworkCapabilities_builder{
+							EnableIpv4: true,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("spec.network_class"))
+			Expect(status.Message()).To(ContainSubstring("immutable"))
+		})
+
+		It("Public Create without network_class when no default exists returns InvalidArgument", func() {
+			// Remove the default NC that BeforeEach created:
+			ncDao, ncErr := dao.NewGenericDAO[*privatev1.NetworkClass]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(ncErr).ToNot(HaveOccurred())
+			_, ncErr = ncDao.Delete().SetId("default").Do(ctx)
+			Expect(ncErr).ToNot(HaveOccurred())
+
+			// Attempt public Create without network_class (no default is configured):
+			_, err := publicServer.Create(ctx, publicv1.VirtualNetworksCreateRequest_builder{
+				Object: publicv1.VirtualNetwork_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: "no-default-nc-vn",
+					}.Build(),
+					Spec: publicv1.VirtualNetworkSpec_builder{
+						Ipv4Cidr: proto.String("10.3.0.0/16"),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(err.Error()).To(ContainSubstring("no default NetworkClass is configured"))
 		})
 	})
 })

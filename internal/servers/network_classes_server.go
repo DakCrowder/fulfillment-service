@@ -16,6 +16,7 @@ package servers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -93,10 +94,19 @@ func (b *NetworkClassesServerBuilder) Build() (result *NetworkClassesServer, err
 		return
 	}
 
+	// Find the is_default field so that we can configure the inMapper to ignore it.
+	// This prevents public API callers from directly setting is_default.
+	isDefaultField := new(publicv1.NetworkClass).ProtoReflect().Descriptor().Fields().ByName("is_default")
+	if isDefaultField == nil {
+		err = fmt.Errorf("failed to find the is_default field of type '%s'", new(publicv1.NetworkClass).ProtoReflect().Descriptor().FullName())
+		return
+	}
+
 	// Create the mappers:
 	inMapper, err := NewGenericMapper[*publicv1.NetworkClass, *privatev1.NetworkClass]().
 		SetLogger(b.logger).
 		SetStrict(true).
+		AddIgnoredFields(isDefaultField.FullName()).
 		Build()
 	if err != nil {
 		return

@@ -339,34 +339,54 @@ func (s *PrivateVirtualNetworksServer) validateNetworkClassReference(ctx context
 	spec *privatev1.VirtualNetworkSpec) (implementationStrategy string, err error) {
 
 	networkClassRef := spec.GetNetworkClass()
+	var networkClass *privatev1.NetworkClass
 	if networkClassRef == "" {
-		err = grpcstatus.Errorf(grpccodes.InvalidArgument, "field 'spec.network_class' is required")
-		return
+		var defaultNC *privatev1.NetworkClass
+		defaultNC, err = findDefaultNetworkClass(ctx, s.logger, s.networkClassDao)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "Failed to query default NetworkClass",
+				slog.Any("error", err),
+			)
+			return "", grpcstatus.Errorf(grpccodes.Internal, "failed to validate network_class")
+		}
+		if defaultNC == nil {
+			return "", grpcstatus.Errorf(grpccodes.InvalidArgument,
+				"field 'spec.network_class' is required (no default NetworkClass is configured)")
+		}
+		networkClassRef = defaultNC.GetId()
+		spec.SetNetworkClass(networkClassRef)
+		networkClass = defaultNC
+	} else {
+		// Look up NetworkClass by ID or implementation_strategy using a single List call.
+		// We avoid Get() here because a NotFound error from Get poisons the shared
+		// database transaction (via ReportError), causing subsequent writes to roll back.
+		listResponse, listErr := s.networkClassDao.List().
+			SetFilter(fmt.Sprintf(
+				"this.id == %[1]q || this.implementation_strategy == %[1]q",
+				networkClassRef,
+			)).
+			SetLimit(1).
+			Do(ctx)
+		if listErr != nil {
+			s.logger.ErrorContext(ctx, "Failed to query NetworkClass",
+				slog.String("network_class", networkClassRef),
+				slog.Any("error", listErr))
+			err = grpcstatus.Errorf(grpccodes.Internal, "failed to validate network_class")
+			return
+		}
+		if len(listResponse.GetItems()) == 0 {
+			err = grpcstatus.Errorf(grpccodes.InvalidArgument,
+				"network_class '%s' does not exist", networkClassRef)
+			return
+		}
+		networkClass = listResponse.GetItems()[0]
 	}
 
-	// Look up NetworkClass by ID or implementation_strategy using a single List call.
-	// We avoid Get() here because a NotFound error from Get poisons the shared
-	// database transaction (via ReportError), causing subsequent writes to roll back.
-	listResponse, listErr := s.networkClassDao.List().
-		SetFilter(fmt.Sprintf(
-			"this.id == %[1]q || this.implementation_strategy == %[1]q",
-			networkClassRef,
-		)).
-		SetLimit(1).
-		Do(ctx)
-	if listErr != nil {
-		s.logger.ErrorContext(ctx, "Failed to query NetworkClass",
-			slog.String("network_class", networkClassRef),
-			slog.Any("error", listErr))
-		err = grpcstatus.Errorf(grpccodes.Internal, "failed to validate network_class")
-		return
-	}
-	if len(listResponse.GetItems()) == 0 {
+	if networkClass.GetMetadata().HasDeletionTimestamp() {
 		err = grpcstatus.Errorf(grpccodes.InvalidArgument,
 			"network_class '%s' does not exist", networkClassRef)
 		return
 	}
-	networkClass := listResponse.GetItems()[0]
 
 	// VN-VAL-05: Check NetworkClass is READY
 	if networkClass.GetStatus().GetState() != privatev1.NetworkClassState_NETWORK_CLASS_STATE_READY {
