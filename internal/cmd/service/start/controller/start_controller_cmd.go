@@ -15,9 +15,11 @@ package controller
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,6 +47,8 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/controllers/subnet"
 	"github.com/osac-project/fulfillment-service/internal/controllers/virtualnetwork"
 	internalhealth "github.com/osac-project/fulfillment-service/internal/health"
+	"github.com/osac-project/fulfillment-service/internal/idp"
+	"github.com/osac-project/fulfillment-service/internal/idp/keycloak"
 	"github.com/osac-project/fulfillment-service/internal/logging"
 	"github.com/osac-project/fulfillment-service/internal/network"
 	shtdwn "github.com/osac-project/fulfillment-service/internal/shutdown"
@@ -73,6 +77,24 @@ func Cmd() *cobra.Command {
 		"",
 		"File containing the token to use for authentication.",
 	)
+	flags.StringVar(
+		&runner.args.idpProvider,
+		"idp-provider",
+		idp.ProviderKeycloak,
+		fmt.Sprintf("Identity provider type (default: %s).", strings.Join(idp.ValidProviders, ", ")),
+	)
+	flags.StringVar(
+		&runner.args.idpURL,
+		"idp-url",
+		"",
+		"Base URL of the identity provider.",
+	)
+	flags.StringVar(
+		&runner.args.idpTokenFile,
+		"idp-token-file",
+		"",
+		"File containing the identity provider authentication token.",
+	)
 	network.AddGrpcClientFlags(flags, network.GrpcClientName, network.DefaultGrpcAddress)
 	network.AddListenerFlags(flags, network.GrpcListenerName, network.DefaultGrpcAddress)
 	network.AddListenerFlags(flags, network.MetricsListenerName, network.DefaultMetricsAddress)
@@ -84,8 +106,11 @@ type runnerContext struct {
 	logger *slog.Logger
 	flags  *pflag.FlagSet
 	args   struct {
-		caFiles   []string
-		tokenFile string
+		caFiles      []string
+		tokenFile    string
+		idpProvider  string
+		idpURL       string
+		idpTokenFile string
 	}
 	client *grpc.ClientConn
 }
@@ -225,6 +250,15 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create hub cache: %w", err)
 	}
+
+	// Create the IDP manager if configured:
+	idpManager, err := r.createIDPManager(ctx, caPool)
+	if err != nil {
+		return err
+	}
+
+	// TODO: Create organization reconciler using idpManager
+	_ = idpManager
 
 	// Create the cluster reconciler:
 	r.logger.InfoContext(ctx, "Creating cluster reconciler")
@@ -548,6 +582,60 @@ func (r *runnerContext) waitForServer(ctx context.Context) error {
 		case <-time.After(interval):
 		}
 	}
+}
+
+// createIDPManager creates the IDP client and organization manager if IDP is configured.
+// Returns nil if IDP is not configured (not an error).
+func (r *runnerContext) createIDPManager(ctx context.Context, caPool *x509.CertPool) (*idp.OrganizationManager, error) {
+	// Check if IDP is configured
+	if r.args.idpURL == "" || r.args.idpTokenFile == "" {
+		r.logger.InfoContext(ctx, "IDP not configured, organization controller will not be started")
+		return nil, nil
+	}
+
+	// Create token source
+	r.logger.InfoContext(ctx, "Creating IDP token source")
+	idpTokenSource, err := auth.NewFileTokenSource().
+		SetLogger(r.logger).
+		SetFile(r.args.idpTokenFile).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IDP token source: %w", err)
+	}
+
+	// Create IDP client based on provider type
+	r.logger.InfoContext(ctx, "Creating IDP client",
+		slog.String("provider", r.args.idpProvider),
+	)
+
+	var idpClient idp.Client
+	switch r.args.idpProvider {
+	case idp.ProviderKeycloak:
+		idpClient, err = keycloak.NewClient().
+			SetLogger(r.logger).
+			SetBaseURL(r.args.idpURL).
+			SetTokenSource(idpTokenSource).
+			SetCaPool(caPool).
+			Build()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Keycloak client: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported IDP provider: %s (supported: %s)", r.args.idpProvider, strings.Join(idp.ValidProviders, ", "))
+	}
+
+	// Create organization manager
+	r.logger.InfoContext(ctx, "Creating IDP Organization manager")
+	idpManager, err := idp.NewOrganizationManager().
+		SetLogger(r.logger).
+		SetClient(idpClient).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IDP Organization manager: %w", err)
+	}
+
+	r.logger.InfoContext(ctx, "IDP Organization manager created successfully")
+	return idpManager, nil
 }
 
 // controllerUserAgent is the user agent string for the controller.
