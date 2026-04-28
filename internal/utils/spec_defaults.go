@@ -45,11 +45,40 @@ func ApplySpecDefaults(spec *privatev1.ComputeInstanceSpec, defaults *privatev1.
 	if !spec.HasRunStrategy() && defaults.HasRunStrategy() {
 		spec.SetRunStrategy(defaults.GetRunStrategy())
 	}
-	if !spec.HasImage() && defaults.HasImage() {
-		spec.SetImage(proto.Clone(defaults.GetImage()).(*privatev1.ComputeInstanceImage))
+	mergeImageDefaults(spec, defaults)
+	mergeBootDiskDefaults(spec, defaults)
+}
+
+func mergeImageDefaults(spec *privatev1.ComputeInstanceSpec, defaults *privatev1.ComputeInstanceTemplateSpecDefaults) {
+	if !defaults.HasImage() {
+		return
 	}
-	if !spec.HasBootDisk() && defaults.HasBootDisk() {
+	if !spec.HasImage() {
+		spec.SetImage(proto.Clone(defaults.GetImage()).(*privatev1.ComputeInstanceImage))
+		return
+	}
+	img := spec.GetImage()
+	defImg := defaults.GetImage()
+	if img.GetSourceType() == "" && defImg.GetSourceType() != "" {
+		img.SetSourceType(defImg.GetSourceType())
+	}
+	if img.GetSourceRef() == "" && defImg.GetSourceRef() != "" {
+		img.SetSourceRef(defImg.GetSourceRef())
+	}
+}
+
+func mergeBootDiskDefaults(spec *privatev1.ComputeInstanceSpec, defaults *privatev1.ComputeInstanceTemplateSpecDefaults) {
+	if !defaults.HasBootDisk() {
+		return
+	}
+	if !spec.HasBootDisk() {
 		spec.SetBootDisk(proto.Clone(defaults.GetBootDisk()).(*privatev1.ComputeInstanceDisk))
+		return
+	}
+	disk := spec.GetBootDisk()
+	defDisk := defaults.GetBootDisk()
+	if disk.GetSizeGib() <= 0 && defDisk.GetSizeGib() > 0 {
+		disk.SetSizeGib(defDisk.GetSizeGib())
 	}
 }
 

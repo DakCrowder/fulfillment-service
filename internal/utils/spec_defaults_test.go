@@ -122,6 +122,87 @@ var _ = Describe("ApplySpecDefaults", func() {
 		Expect(spec.HasBootDisk()).To(BeFalse())
 	})
 
+	It("Merges default source_type into user-provided partial image", func() {
+		spec := privatev1.ComputeInstanceSpec_builder{
+			Template: "test.template",
+			Image: privatev1.ComputeInstanceImage_builder{
+				SourceRef: "quay.io/my-image:latest",
+			}.Build(),
+		}.Build()
+
+		defaults := privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+			Image: privatev1.ComputeInstanceImage_builder{
+				SourceType: "registry",
+				SourceRef:  "quay.io/containerdisks/fedora:latest",
+			}.Build(),
+		}.Build()
+
+		ApplySpecDefaults(spec, defaults)
+
+		Expect(spec.GetImage().GetSourceType()).To(Equal("registry"))
+		Expect(spec.GetImage().GetSourceRef()).To(Equal("quay.io/my-image:latest"))
+	})
+
+	It("Merges default source_ref into user-provided partial image", func() {
+		spec := privatev1.ComputeInstanceSpec_builder{
+			Template: "test.template",
+			Image: privatev1.ComputeInstanceImage_builder{
+				SourceType: "registry",
+			}.Build(),
+		}.Build()
+
+		defaults := privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+			Image: privatev1.ComputeInstanceImage_builder{
+				SourceType: "registry",
+				SourceRef:  "quay.io/containerdisks/fedora:latest",
+			}.Build(),
+		}.Build()
+
+		ApplySpecDefaults(spec, defaults)
+
+		Expect(spec.GetImage().GetSourceType()).To(Equal("registry"))
+		Expect(spec.GetImage().GetSourceRef()).To(Equal("quay.io/containerdisks/fedora:latest"))
+	})
+
+	It("Does not override user-provided image fields with defaults", func() {
+		spec := privatev1.ComputeInstanceSpec_builder{
+			Template: "test.template",
+			Image: privatev1.ComputeInstanceImage_builder{
+				SourceType: "registry",
+				SourceRef:  "quay.io/my-image:latest",
+			}.Build(),
+		}.Build()
+
+		defaults := privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+			Image: privatev1.ComputeInstanceImage_builder{
+				SourceType: "registry",
+				SourceRef:  "quay.io/containerdisks/fedora:latest",
+			}.Build(),
+		}.Build()
+
+		ApplySpecDefaults(spec, defaults)
+
+		Expect(spec.GetImage().GetSourceType()).To(Equal("registry"))
+		Expect(spec.GetImage().GetSourceRef()).To(Equal("quay.io/my-image:latest"))
+	})
+
+	It("Merges default boot_disk size_gib when user provides empty boot_disk", func() {
+		spec := privatev1.ComputeInstanceSpec_builder{
+			Template: "test.template",
+			BootDisk: privatev1.ComputeInstanceDisk_builder{}.Build(),
+		}.Build()
+
+		defaults := privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+			BootDisk: privatev1.ComputeInstanceDisk_builder{
+				SizeGib: 20,
+			}.Build(),
+		}.Build()
+
+		ApplySpecDefaults(spec, defaults)
+
+		Expect(spec.GetBootDisk().GetSizeGib()).To(Equal(int32(20)))
+	})
+
 	It("Clones message-type defaults to prevent shared state", func() {
 		spec := privatev1.ComputeInstanceSpec_builder{
 			Template: "test.template",
